@@ -27,6 +27,7 @@
 
 ## 絶対に守る規約
 
+- **全てのやりとりは日本語で行う**
 - **日付は JST 固定の `YYYY-MM-DD` 文字列**。`Date` オブジェクトを API・DB・コンポーネント境界越しに渡さない
 - **サーバー側バリデーション**: `/api/auth/*` は zValidator を通らないため、signup / updateUser の入力検証は Better Auth の `hooks.before` で行う(フロントの Zod 検証は UX 用であり防御ではない)
 - コーデの気温スナップショット(`maxTemperature` / `minTemperature`)はサーバー側が予報キャッシュから書き込む。クライアントから受け取らない
