@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build (Vite / Nitro / TanStack Start)
+dist/
+.output/
+.nitro/
+.tanstack/
+
+# turborepo
+.turbo/
+
+# testing
+/coverage
+/.playwright-mcp
+
+# debug
+npm-debug.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# typescript
+*.tsbuildinfo
+
+# misc
+.DS_Store
+*.pem
+
+# local tool state
+.claude/settings.local.json
+.omc/
+.agents/skills/
+
+# kit
+kit/
