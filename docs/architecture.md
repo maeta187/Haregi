@@ -3,6 +3,7 @@
 Haregi の技術設計。**どう作るか**(スタック・構成・データモデル・API・認証・非機能要件)を定義する。要件(何を作るか)は [specification.md](./specification.md) を参照。
 
 - 作成日: 2026-07-19([rebuildspec.md](./rebuildspec.md) からの分割。検討経緯・盲点レビューの記録はそちらを参照)
+- 更新: 2026-07-25(決定事項 #26〜#29 を追加。バックエンド/フロントエンドのレイヤー構成・TDD 方針・気温スナップショットの基準地域を明確化)
 - ステータス: 確定(実装は新リポジトリで行う)
 
 ---
@@ -23,7 +24,10 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 | エラーハンドリング | neverthrow(`apps/api` のみ) |
 | フォーム | React Hook Form + @hookform/resolvers |
 | 外部 API | 気象庁 天気予報 JSON(API キー不要・出典明記で利用) |
-| テスト | Vitest |
+| ロギング | pino(`apps/api` のみ。構造化ログ) |
+| API ドキュメント | `@hono/zod-openapi` + `@hono/swagger-ui`(`/api/doc` で Swagger UI 公開) |
+| テスト | Vitest(全層で TDD) |
+| コンポーネントテスト | `@testing-library/react` + `@testing-library/jest-dom`(`apps/web`) |
 | Lint / Format | oxlint + oxfmt(Oxc ツールチェーン) |
 
 ---
@@ -55,6 +59,12 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 | 21 | 日付の基準 | **JST 固定の `YYYY-MM-DD` 文字列** | 「今日」の判定・upsert キー・気象庁 JSON(JST)を跨ぐ日付ズレを排除。`Date` オブジェクトを境界越しに渡さない(§9 参照) |
 | 22 | バージョン管理方針 | **初回 commit で lockfile ごと固定・更新は1パッケージずつ** | TanStack Start v1 / TS7 / oxfmt ベータ等、全レイヤーが新しいため問題発生時の切り分けコストを抑える(§9 参照) |
 | 23 | デプロイ先 | **未定(明示的保留)** | 現段階では決めない。ただしサーバー側キャッシュ(インメモリ前提)と web→api の2プロセス+プロキシ構成は **Node 常駐プロセスを暗黙の前提**としており、サーバーレス系を選ぶ場合はキャッシュ置き場とプロキシ構成の再設計が必要になる点をデプロイ先決定時に再確認する |
+| 24 | ロギング | **pino を `apps/api` に導入** | Hono の標準 `logger` ミドルウェアより構造化(JSON)出力・ログレベル制御に優れ、本番運用時の解析がしやすい。web には導入しない(SSR/ブラウザ両対応のログ基盤は本規模には過剰) |
+| 25 | API ドキュメント | **`@hono/zod-openapi` + `@hono/swagger-ui`** | 既存の Zod スキーマ(`packages/schema`)をそのまま OpenAPI 定義に転用でき、二重管理を避けられる。`/api/doc` で Swagger UI を公開し、手動での API 仕様書メンテナンスを不要にする |
+| 26 | バックエンドアーキテクチャ | **軽量オニオンアーキテクチャ(機能優先ディレクトリ)** | `apps/api` に domain/application/infrastructure/presentation の4層分離を導入し、外部 I/O(気象庁・DB・Better Auth)への依存をドメインロジックから切り離す。全3機能(認証・天気予報・コーディネート)の規模では DDD 戦術パターン(集約・値オブジェクト等)は過剰と判断し見送り。ディレクトリは既存の機能単位垂直スライス(実装プランのフェーズ4〜6)と一致させるため層優先ではなく機能優先(`features/{auth,forecast,coordinate}/{domain,application,infrastructure,presentation}`)を採用。neverthrow は従来どおり `apps/api` のみだが、適用範囲を infrastructure 層に限定し、application 層以降は型付きエラーの throw/catch に統一する(決定事項 #19 を具体化) |
+| 27 | 開発プロセス | **フロントエンド・バックエンド共に TDD(テスト駆動開発)で実装** | 各層・各コンポーネントとも「失敗するテストを書く(Red)→ 実装して通す(Green)→ リファクタリング(Refactor)」の順で進める。バックエンドは `domain` の純粋ロジックと `application` のユースケースを中心に単体テストを先行させる。フロントエンドは `packages/schema` 側のバリデーション/日付ユーティリティに加え、`apps/web` の React コンポーネントも `@testing-library/react` でテストを先行させる(決定事項 #11 の「UI テスト・E2E はスコープ外」を修正し、**コンポーネントテストはスコープ内・E2E は引き続きスコープ外**とする) |
+| 28 | フロントエンドアーキテクチャ | **機能優先スライス + 副作用の層分離(軽量 FSD 風)** | `apps/web` に Feature-Sliced Design の思想のうち「機能スライス」と「依存方向の一方向ルール」のみを採用し、`features/{auth,forecast,coordinate}/{components,hooks,api,model}` の構成をとる。api 側の軽量オニオン(決定事項 #26)と層が対応(routes ≒ presentation / hooks ≒ application / api ≒ infrastructure / model ≒ domain)するため、実装プランの垂直スライスを web にもそのまま適用でき、両側を同じ語彙で語れる。FSD 本来の6層(app/pages/widgets/features/entities/shared)は全3機能の規模では entities / widgets が空洞化するため採らない。Atomic Design は shadcn/ui と粒度定義が競合するため不採用。グローバル状態管理ライブラリ(Redux / Zustand 等)も不採用(サーバー状態は TanStack Query、セッションは Better Auth client、フォームは RHF が保持するため残余状態がほぼない) |
+| 29 | 気温スナップショットの基準地域 | **保存時に「表示中の地域」の予報から引く** | 表示地域の切替(spec §2.2 Must)があるため、登録地域固定にすると画面に表示されていた気温と DB の記録が食い違い、後から復元できない。`PUT /api/coordinates` のボディに `areaCode` を追加し、サーバーがマスタ照合の上その地域の予報キャッシュから解決する(**気温値そのものはクライアントから受け取らない**原則は維持。決定事項 #21 と併せて §5 参照)。地域をまたいだ記録が同一履歴に混在する点は許容し、「似た気温の日に何を着たか」(Could)の実装時に地域の扱いを再検討する |
 
 ---
 
@@ -63,14 +73,36 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 ```
 haregi/
 ├── apps/
-│   ├── web/                  # TanStack Start(フロントエンド)
-│   │   ├── src/routes/       # TanStack Router ファイルルーティング(/, /signup, /login, /forecast, ...)
-│   │   ├── src/components/   # shadcn/ui 取り込み先 + 独自コンポーネント
-│   │   └── src/lib/          # auth-client, api-client(Hono RPC + TanStack Query)
-│   └── api/                  # Hono(バックエンド)
-│       ├── src/auth.ts       # Better Auth インスタンス
-│       ├── src/app.ts        # ルート定義(AppType をエクスポート)
-│       ├── src/index.ts      # @hono/node-server エントリ
+│   ├── web/                  # TanStack Start(フロントエンド。機能優先スライス・軽量 FSD 風)
+│   │   └── src/
+│   │       ├── routes/               # TanStack Router ファイルルーティング(/, /signup, /login, /forecast, ...)
+│   │       │                         # ルート定義・beforeLoad の認証ガード・features の合成のみ(ロジックを書かない)
+│   │       ├── features/
+│   │       │   ├── auth/
+│   │       │   │   ├── components/   # 表示のみ(props in / callback out。副作用を持たない)
+│   │       │   │   ├── hooks/        # ユースケース相当(useSignup / useSession。TanStack Query を包む)
+│   │       │   │   ├── api/          # 外部 I/O 相当(hc<AppType> / authClient 呼び出しをここに閉じる)
+│   │       │   │   └── model/        # 表示用の純粋変換のみ(任意。ビジネスルールは packages/schema)
+│   │       │   ├── forecast/         # 天気予報機能(同構成)
+│   │       │   └── coordinate/       # コーディネート機能(同構成)
+│   │       ├── components/ui/        # shadcn/ui 取り込み先(原則手を入れない)
+│   │       └── lib/                  # auth-client, api-client(Hono RPC + TanStack Query), query-client, cn
+│   └── api/                  # Hono(バックエンド。軽量オニオンアーキテクチャ・機能優先ディレクトリ)
+│       ├── src/
+│       │   ├── features/
+│       │   │   ├── auth/                # 認証機能
+│       │   │   │   ├── domain/          # ドメインロジック(外部依存なし。純粋関数・型)
+│       │   │   │   ├── application/     # ユースケース(Repository インターフェース経由でドメインを orchestrate)
+│       │   │   │   ├── infrastructure/  # Better Auth・Drizzle アダプタ(neverthrow はこの層のみ)
+│       │   │   │   └── presentation/    # Hono ルート + OpenAPI 定義。ユースケースの例外を HTTP ステータスへ変換
+│       │   │   ├── forecast/            # 天気予報機能(同様の4層構成)
+│       │   │   └── coordinate/          # コーディネート機能(同様の4層構成)
+│       │   ├── shared/
+│       │   │   ├── logger.ts            # pino インスタンス + リクエストロギングミドルウェア
+│       │   │   ├── openapi.ts           # OpenAPIHono 構築 + Swagger UI(`/api/doc`)セットアップ
+│       │   │   └── http-errors.ts       # アプリケーションエラー → HTTP ステータスの共通マッピング
+│       │   ├── app.ts                   # 各 feature の presentation ルータを合成し `AppType` をエクスポート
+│       │   └── index.ts                 # @hono/node-server エントリ
 │       └── scripts/          # seed.ts / validate-areas.ts(全58区分の実レスポンス検証)
 ├── packages/
 │   ├── db/                   # Drizzle スキーマ + クライアント + drizzle-kit 設定
@@ -80,6 +112,51 @@ haregi/
 ├── pnpm-workspace.yaml
 └── .env.example
 ```
+
+### apps/api のレイヤー構成(軽量オニオンアーキテクチャ)
+
+`apps/api` は機能(auth / forecast / coordinate)優先のディレクトリ配下に、各機能とも同じ4層を持つ**軽量オニオンアーキテクチャ**を採用する。DDD の戦術パターン(Entity / Value Object / Aggregate / ドメインイベント)は導入せず、層分離とその依存方向のみを目的とする。
+
+```
+presentation → application → domain
+infrastructure ┘         (domain のインターフェースを実装。依存はドメインへ向く)
+```
+
+- **domain**: 型・純粋なドメインロジックのみ。他層(Hono・Drizzle・fetch・neverthrow)への依存を持たない。Repository の**インターフェース**もここに定義する(依存性逆転)
+- **application**: ユースケース(例: `signup`, `getForecast`, `upsertCoordinates`)。domain のインターフェース経由で infrastructure を呼び出す。**neverthrow の `Result`/`ResultAsync` はこの層の公開シグネチャに出さない**。infrastructure から返る `ResultAsync` は `.match()` などでこの層の内部で処理し、失敗時は型付きのアプリケーションエラー(例: `ForecastUnavailableError`)を throw する
+- **infrastructure**: 外部 I/O(気象庁 JSON 取得・Drizzle・Better Auth・S3)を実装するアダプタ。domain で定義した Repository インターフェースを実装する。**neverthrow はこの層のみで使用**し、`ResultAsync<T, FetchError | ParseError | UnknownAreaError | DbError>` を返す
+- **presentation**: Hono ルート + `@hono/zod-openapi` の `createRoute` 定義。application のユースケースを呼び出し、throw されたアプリケーションエラーを `shared/http-errors.ts` の共通マッピングで HTTP ステータス(400 / 401 / 502 等)へ変換する。例外をここより上位(Hono フレームワーク層)に漏らさない
+
+`shared/` は機能をまたぐ横断的関心事(pino ロガー・OpenAPI/Swagger UI セットアップ・エラーマッピング)を置き、いずれの feature からも参照してよい。
+
+### apps/web のレイヤー構成(機能優先スライス)
+
+`apps/web` は api と同じ機能単位(auth / forecast / coordinate)でスライスし、各スライス内で**副作用の所在によって層を分ける**。層は api 側と次のように対応する:
+
+| apps/web | apps/api | 責務 |
+| --- | --- | --- |
+| `routes/` | presentation | ルート定義・`beforeLoad` の認証ガード・features の合成。ロジックを持たない |
+| `features/*/hooks/` | application | ユースケース。TanStack Query の `useQuery` / `useMutation` を包み、非同期と状態遷移を集約する |
+| `features/*/api/` | infrastructure | 外部 I/O。`hc<AppType>`(Hono RPC)と `authClient` の呼び出しをここに閉じる |
+| `features/*/model/` | domain | 表示用の純粋変換のみ(任意)。ビジネスルールは `packages/schema` に置く |
+| `features/*/components/` | - | 表示。props in / callback out で副作用を持たない |
+
+守る規約は4つ:
+
+1. **依存方向は `routes → features → (components/ui, lib, @haregi/schema)` の一方向**。`features → routes` と `components/ui → features` を禁止する
+2. **`hc<AppType>` / `authClient` の呼び出しは `features/*/api/` にのみ書く**。`components/` から直接呼ばない(fetch 直書き禁止の延長)
+3. **features 間の横断参照は原則禁止**。例外は api 側と同じ1つのみ — `coordinate → forecast`(気温スナップショットの表示)は許可し、逆方向は禁止。これ以上増える場合は `routes` で合成するか `lib` に降ろす
+4. **ビジネスルール(Zod・日付/気温ロジック)は `packages/schema` に一本化**し、`features/*/model/` に再定義しない
+
+この分離により、`components/` は props のみの純粋コンポーネントとして `@testing-library/react` でテストでき、非同期・エラー分岐は `hooks/`(`api/` をモック)でテストできる。「予報取得失敗(502)でもコーデ入力・保存が継続できる」「未認証で `/login` へリダイレクトされる」といった要件テストの置き場所が一意に決まることを狙う(決定事項 #27・#28)。
+
+`/forecast` は予報表示部とコーデ入力部を統合した画面のため、両 feature を `routes/forecast.tsx` で合成する形をとり、ルートファイルの肥大化を防ぐ。
+
+共通 UI(spec §2.4 の Must)の実現方法:
+
+- **ナビのログイン状態出し分け**: `features/auth/hooks/` のセッション取得フックを `routes/__root.tsx` のレイアウトが参照して切り替える(ナビ自体は `components/` の純粋コンポーネントとし、props でログイン状態を受ける)
+- **レスポンシブ・モバイルのドロワーナビ**: Tailwind のブレークポイントで切り替え、ドロワーは shadcn/ui の Sheet を用いる
+- **トースト通知**: shadcn/ui の sonner を `routes/__root.tsx` に1箇所マウントし、`hooks/` の mutation 成否から呼ぶ
 
 ### 通信経路
 
@@ -120,8 +197,8 @@ export const coordinate = pgTable(
     tops: text('tops').notNull().default(''),
     bottoms: text('bottoms').notNull().default(''),
     imageKey: text('image_key'),            // コーデ写真のオブジェクトキー(Should 機能。写真なしは null)
-    maxTemperature: real('max_temperature'), // 記録時点の予報最高気温スナップショット(null 可)
-    minTemperature: real('min_temperature'), // 記録時点の予報最低気温スナップショット(null 可)
+    maxTemperature: real('max_temperature'), // 記録時点の予報最高気温スナップショット(表示中の地域基準。null 可)
+    minTemperature: real('min_temperature'), // 記録時点の予報最低気温スナップショット(同上)
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -136,7 +213,7 @@ export const coordinate = pgTable(
 
 - **Prefecture テーブルを廃止**。地域マスタはコード(`packages/schema`)に持ち、user には府県予報区コード(`areaCode`)のみ保存する(正規化とシンプル化)。緯度経度は不要になる
 - **Coordinate に `date` カラムを追加**し、`(userId, date)` を一意制約に(upsert 前提)
-- **Coordinate に気温スナップショット(`maxTemperature` / `minTemperature`)を追加**。保存時にサーバー側が登録地域の予報キャッシュから該当日付の気温を引いて書き込み(予報範囲外の日付は null)、「似た気温の過去コーデ参照」「AI コーディネート提案」の材料を初回リリース時点から蓄積する(後から past データを復元するのは困難なため、これだけは Must フェーズで実装する)
+- **Coordinate に気温スナップショット(`maxTemperature` / `minTemperature`)を追加**。保存時にサーバー側がリクエストの `areaCode`(表示中の地域。決定事項 #29)の予報キャッシュから該当日付の気温を引いて書き込み(予報範囲外の日付は null)、「似た気温の過去コーデ参照」「AI コーディネート提案」の材料を初回リリース時点から蓄積する(後から past データを復元するのは困難なため、これだけは Must フェーズで実装する)
 - パスワードは Better Auth 管理(account テーブルの `password` に scrypt ハッシュ)。現行の bcrypt ハッシュは移行しない(本番ユーザー不在のため)
 
 マイグレーションは drizzle-kit(`drizzle-kit generate` / `migrate`)で管理する。
@@ -150,17 +227,20 @@ export const coordinate = pgTable(
 | `ALL /api/auth/*` | - | Better Auth ハンドラ(signup / login / logout / session / updateUser 等) |
 | `GET /api/forecast?area={code}` | 必要 | 気象庁 JSON から週間予報を取得し整形して返す。`area` 省略時はユーザーの登録地域、指定時はマスタ照合の上その地域(地域切替用)。短期の天気・降水確率は一次細分区域、週間の天気は週間予報区域、気温は代表アメダス地点のデータを地域マスタで解決する |
 | `GET /api/coordinates?from&to` | 必要 | 自分のコーデ一覧(期間指定可)。写真がある場合は短命の署名付き GET URL をレスポンスに同梱(Should) |
-| `PUT /api/coordinates` | 必要 | `{ items: [{ date, outerwear, tops, bottoms, imageKey? }] }` を一括 upsert(**items は最大7件**)。気温スナップショットはサーバー側が登録地域の予報キャッシュから該当日付の値を引いて書き込む(予報範囲外の日付は null。クライアントからは受け取らない) |
+| `PUT /api/coordinates` | 必要 | `{ areaCode, items: [{ date, outerwear, tops, bottoms, imageKey? }] }` を一括 upsert(**items は最大7件**)。気温スナップショットはサーバー側が `areaCode`(**画面で表示中の地域**。マスタ照合必須)の予報キャッシュから該当日付の値を引いて書き込む(予報範囲外の日付・予報取得失敗時は null。**気温値はクライアントから受け取らない**。決定事項 #29) |
 | `DELETE /api/coordinates/:date` | 必要 | 指定日のコーデ削除。写真があればストレージのオブジェクトも削除(Should) |
 | `POST /api/uploads` | 必要 | コーデ写真用の署名付きURL(presigned URL)を発行(Should)。ブラウザからストレージへ直接 PUT し、API サーバーに画像は通さない。**imageKey は `PUT /api/coordinates` で確定させる3ステップフロー**(presign → 直接 PUT → 確定)。確定されなかったキーは孤児オブジェクトとして許容し、定期掃除は Could |
+| `GET /api/doc` | 不要 | Swagger UI(`@hono/swagger-ui`)。`/api/openapi.json` の OpenAPI スキーマを表示する開発用ドキュメント |
 
 ### 設計原則
 
-- セッション判定はミドルウェアで `auth.api.getSession({ headers })` を実行し、`c.get('user')` に格納。未認証は 401
-- **エラーハンドリング(neverthrow)**: 外部 I/O(気象庁 JSON 取得・Drizzle・S3)は `ResultAsync` でラップし、型付きエラー(例: `FetchError | ParseError | UnknownAreaError | DbError`)として返す。ルートハンドラで HTTP ステータス(400 / 401 / 502 等)へ網羅的にマッピングし、例外はアプリ層に漏らさない。気象庁取得にはタイムアウト(`AbortSignal.timeout`)と軽量なリトライを併用する
+- セッション判定は `presentation` 層のミドルウェアで `auth.api.getSession({ headers })` を実行し、`c.get('user')` に格納。未認証は 401
+- **レイヤーと エラーハンドリング(neverthrow)**: 外部 I/O(気象庁 JSON 取得・Drizzle・S3)は `infrastructure` 層で `ResultAsync` にラップし、型付きエラー(例: `FetchError | ParseError | UnknownAreaError | DbError`)として返す。`application` 層のユースケースがこれを `.match()` 等で処理し、失敗時は型付きアプリケーションエラーを throw する(neverthrow を層の外へ持ち出さない)。`presentation` 層(ルートハンドラ)は throw されたエラーを `shared/http-errors.ts` の共通マッピングで HTTP ステータス(400 / 401 / 502 等)へ網羅的に変換し、例外を Hono フレームワーク層に漏らさない。気象庁取得にはタイムアウト(`AbortSignal.timeout`)と軽量なリトライを infrastructure 層で併用する
 - リクエストボディは `@hono/zod-validator` + `packages/schema` の Zod スキーマで検証(フロントと同一スキーマ)。`items` の件数上限(最大7件)もここで強制する
 - 日付はすべて **JST 基準の `YYYY-MM-DD` 文字列**として API 境界・DB(`date` カラム)・URL パラメータで統一する(§9 参照)
-- ルートはメソッドチェーンで定義し `export type AppType` を公開 → web 側 `hc<AppType>` で型安全に呼ぶ
+- 各 feature の `presentation` 層でメソッドチェーンによりルートを定義し、`app.ts` で合成した上で `export type AppType` を公開 → web 側 `hc<AppType>` で型安全に呼ぶ
+- **ロギング(pino)**: `src/shared/logger.ts` の pino インスタンスをリクエストロギングミドルウェアで全ルートに適用し、method / path / status / duration / requestId を構造化(JSON)出力する。neverthrow のエラー分岐でも型付きエラーの内容を pino でログする。ログレベルは `LOG_LEVEL` 環境変数で制御(開発は `debug`、本番は `info` を想定)
+- **API ドキュメント(Swagger UI)**: `packages/schema` の Zod スキーマを `@hono/zod-openapi` の `createRoute` でラップし、`GET /api/openapi.json` として OpenAPI 定義を生成。`@hono/swagger-ui` の `swaggerUI({ url: '/api/openapi.json' })` を `GET /api/doc` にマウントする。エンドポイント追加のたびに定義を更新し、手動の API 仕様書を作らない
 
 ### AI コーディネート提案(Could)への前方互換
 
@@ -180,7 +260,7 @@ export const coordinate = pgTable(
 - **週間予報は翌日始まり**のため、当日の気温は短期パートから補完する。当日分などに空文字 `""` が入るため欠損値処理を必須とする
 - **奄美(460040)・十勝(014030)は自分の予報 JSON を持たない(404)**。親区分(鹿児島 460100 / 釧路・根室 014100)のレスポンスに同居する(マスタの `forecastCode` で取得先を分離)
 - **週間予報の天気・降水確率は大半の区分で広域(府県予報区単位)に統合**される(マスタの `weeklyArea` で解決。福島のみ「中通り・浜通り(070100)」という中間区域)
-- 非公式 API のため、取得・整形は `apps/api` 内の1モジュールに隔離し、仕様変更時に差し替え可能な構造にする。構造差を吸収して共通の `Forecast` 型へ正規化する
+- 非公式 API のため、取得・整形は `apps/api` の `features/forecast/` 内に隔離し、仕様変更時に差し替え可能な構造にする(正規化ロジックは `domain`、取得・キャッシュは `infrastructure`。決定事項 #26)。構造差を吸収して共通の `Forecast` 型へ正規化し、他 feature にはこの型でのみ渡す
 
 ### 地域マスタ(`packages/schema`)
 
@@ -212,7 +292,7 @@ export const coordinate = pgTable(
 ## 7. 認証設計(Better Auth)
 
 ```ts
-// apps/api/src/auth.ts(概略)
+// apps/api/src/features/auth/infrastructure/auth.ts(概略。決定事項 #26 のレイヤー構成に従う)
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: 'pg' }),
   baseURL: process.env.BETTER_AUTH_URL,        // 例: http://localhost:3000
@@ -232,17 +312,18 @@ export const auth = betterAuth({
     enabled: true          // ログイン総当たり対策(組み込み・メモリベース)
   },
   hooks: {
-    before: signupValidationHook  // ★ サーバー側入力検証(下記参照)
+    before: authValidationHook  // ★ サーバー側入力検証(signup / updateUser / changePassword。下記参照)
   }
 })
 ```
 
 - 会員登録はフロントから `authClient.signUp.email({ email, password, name, areaCode })` の1回で完了(現行の自前 `/api/signin` は不要になる)
 - フロントは `createAuthClient` + `inferAdditionalFields` プラグインで `areaCode` を型付け
-- **`/api/auth/*` は zValidator を通らない**ため、サーバー側の入力検証は Better Auth の **`hooks.before`(signup / updateUser 対象)**で行う。`packages/schema` の Zod スキーマを再利用し、以下をすべてサーバー側で強制する(フロントの Zod 検証は UX 用であり、防御は hooks が担う):
-  - パスワードの文字種ルール(小文字英字+数字を含む)
-  - `areaCode` が地域マスタに実在すること
-  - ユーザー名の形式(8文字以上・英数字のみ)
+- **`/api/auth/*` は zValidator を通らない**ため、サーバー側の入力検証は Better Auth の **`hooks.before`** で行う。対象は **signup / updateUser / changePassword** の3つ(パスワード変更・アカウント設定は spec §2.1 の Should だが、検証経路は同じ hook に集約する)。`packages/schema` の Zod スキーマを再利用し、以下をすべてサーバー側で強制する(フロントの Zod 検証は UX 用であり、防御は hooks が担う):
+  - パスワードの文字種ルール(小文字英字+数字を含む)— signup / changePassword の両方
+  - `areaCode` が地域マスタに実在すること — signup / updateUser の両方
+  - ユーザー名の形式(8文字以上・英数字のみ)— signup / updateUser の両方
+- パスワードの長さ(8〜20文字)は `emailAndPassword` の `minPasswordLength` / `maxPasswordLength` が全経路で強制するため hook では扱わない
 
 ---
 
@@ -250,8 +331,9 @@ export const auth = betterAuth({
 
 - S3 互換 API 前提でコードを書き、契約先(R2 / S3 等)は実装時に決定。ローカル開発は MinIO(Docker)
 - アップロードは **presign → ブラウザから直接 PUT → `PUT /api/coordinates` の `imageKey` で確定**の3ステップ(§5 参照)
-- **サイズ上限(5MB)をサーバー側で強制するには presigned POST(`content-length-range`)対応が必要**。R2 は presigned POST 非対応のため、契約先選定時に対応可否を確認する
+- **サイズ上限(5MB)と形式制限(jpeg / png / webp)をサーバー側で強制するには presigned POST 対応が必要**(それぞれ `content-length-range` / `Content-Type` の条件指定)。R2 は presigned POST 非対応のため、**契約先選定時にこの2点の対応可否を確認する**。presigned PUT で済ませる場合、両制限はフロント側の事前チェックのみとなり防御にならない点を受け入れるかの判断が必要になる
 - 閲覧は短命の署名付き GET URL を API レスポンスに同梱。確定されなかったキー(孤児オブジェクト)は許容し、定期掃除は Could
+- **サムネイルは生成しない**。履歴一覧(spec §2.3 Should)でも原寸オブジェクトの署名付き URL を CSS で縮小表示する。画像を API サーバーに通さない原則(presign 方式)とサーバー側リサイズは両立しないため、転送量が問題になった時点で別途検討する(Could)
 - user 削除時、DB は cascade で消えるがストレージのオブジェクトは残る(孤児として同様に扱う)
 
 ---
@@ -267,6 +349,7 @@ export const auth = betterAuth({
 | `BETTER_AUTH_URL` | 公開オリジン(例: `http://localhost:3000`) |
 | `WEB_ORIGIN` | trustedOrigins 用 |
 | `API_PORT` / `API_ORIGIN` | API サーバのポート / rewrites 先 |
+| `LOG_LEVEL` | pino のログレベル(開発: `debug` / 本番: `info` を想定) |
 | `STORAGE_ENDPOINT` / `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` | S3 互換ストレージ接続情報(Should: 写真アップロード導入時に追加。ローカルは MinIO を docker-compose に追加) |
 
 ### 日付・タイムゾーン方針
@@ -297,11 +380,13 @@ export const auth = betterAuth({
 - **oxfmt**(ベータ): Prettier 代替。JS/TS の Prettier 適合テスト100%通過・**Tailwind クラスソート内蔵**(prettier-plugin-tailwindcss が不要になる)。1.0 までは挙動変更の可能性がある点のみ留意
 - Turborepo に公式の Oxc(oxlint / oxfmt)導入ガイドがあり、モノレポ構成と干渉しない
 
-### テスト方針(Vitest)
+### テスト方針(Vitest・TDD)
 
+- **フロントエンド・バックエンドともに TDD で実装する**(決定事項 #27)。実装前に失敗するテストを書き(Red)、実装して通し(Green)、必要に応じてリファクタリングする(Refactor)のサイクルを各層・各コンポーネントで回す
 - `packages/schema`: バリデーションスキーマ、地域マスタ(コードの一意性・形式)、日付/気温整形ユーティリティ
-- `apps/api`: 気象庁 JSON → `Forecast` 型への正規化、キャッシュ動作、認証ミドルウェアの 401 応答
-- UI テスト・E2E は今回スコープ外(将来 Playwright を検討)
+- `apps/api`: 各 feature の `domain`(純粋ロジック)・`application`(ユースケース)を中心に単体テスト。気象庁 JSON → `Forecast` 型への正規化、キャッシュ動作、認証ミドルウェアの 401 応答も対象
+- `apps/web`: `@testing-library/react` + `@testing-library/jest-dom` によるコンポーネントテストを実装前に書く(フォームのバリデーション表示・保護ルートのリダイレクト・予報取得失敗時のエラー表示など)
+- E2E(Playwright 等)は今回スコープ外(将来検討)
 
 ### シードデータ
 
@@ -315,7 +400,7 @@ export const auth = betterAuth({
 1. **ワークスペース骨組み**: pnpm-workspace.yaml / turbo.json / tsconfig.base.json / oxlint・oxfmt 設定 / .env.example / docker-compose.yml
 2. **packages/schema**: Zod スキーマ(signup / login / coordinates)、地域マスタ(**生成・検証済みの `master-data/areas.ts` を移植**)、日付(JST)/気温整形ユーティリティ + Vitest。検証スクリプト(`master-data/validate-areas.mjs`)も `apps/api/scripts/validate-areas.ts` として移植し、気象庁側の変更検知に使う
 3. **packages/db**: Drizzle 設定 → Better Auth CLI でスキーマ生成 → user への `areaCode` 追加フィールドと `coordinate` テーブルを追記 → 初回マイグレーション
-4. **apps/api**: Better Auth インスタンス(**hooks 検証・rateLimit 含む**)→ Hono ルート(auth マウント → セッションミドルウェア → forecast / coordinates)→ neverthrow による外部 I/O のエラー型整備 → シード → テスト
+4. **apps/api**: `shared/`(pino ロガー・OpenAPIHono + Swagger UI セットアップ・http-errors マッピング)→ 機能(auth → forecast → coordinate)ごとに **domain → infrastructure → application → presentation** の順で実装(neverthrow は infrastructure 層のみ)→ `app.ts` で各 feature の presentation ルータを合成 → シード → テスト
 5. **apps/web**: TanStack Start + Tailwind v4(`@tailwindcss/vite`)+ shadcn/ui 導入 → auth-client / RPC client / TanStack Query → **まず signup → login → session 取得が Vite プロキシ越しに通ること(Set-Cookie の転送・trustedOrigins・Cookie 属性)を確認**してから、ルート実装(landing → signup → login → forecast、`beforeLoad` の認証ガード含む)に進む
 6. **結合確認**: docker の PostgreSQL に対し signup → login → forecast 取得 → コーデ upsert の一連を通す
 7. Should 機能(履歴・設定・削除・天気アイコン・写真アップロード)を順次追加。写真はストレージ契約(S3 互換)を決めてから着手
