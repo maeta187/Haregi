@@ -53,6 +53,15 @@
 - Claude Code は `.mcp.json` のサーバーを初回セッションで**承認する必要がある**(承認するまで `⏸ Pending approval`)
 - MCP 設定に認証情報を直接書かない。必要な場合は環境変数参照にする
 
+### 導入済みスキル
+
+- `modern-web-guidance`(Google Chrome / Microsoft Edge チーム): モダン Web プラットフォームのベストプラクティス集。**`apps/web` の HTML / CSS / クライアントサイド JS を書く前に検索する**(詳細・スタックとの優先関係は `.agents/rules/ui-web.md`)
+  - 復元・更新: `npx modern-web-guidance@latest install` / `npx modern-web-guidance@latest update`
+  - ガイド検索・取得には npx でのネットワークアクセスが必要。テレメトリは `DISABLE_TELEMETRY=1` で無効化できる
+- 他に `kaizen` / `shadcn` / `tdd` / `webapp-testing`
+- `verify-frontend`(**自作・コミット対象**): `apps/web` の実装後に MCP で動作・パフォーマンス・アクセシビリティを検証する手順。閾値は暫定なので、実際の画面を見て調整したら SKILL.md も更新する
+  - 自作スキルは `.gitignore` で negate してコミットする(外部スキルは lockfile 復元でコミットしない)
+
 ## 絶対に守る規約
 
 - **全てのやりとりは日本語で行う**

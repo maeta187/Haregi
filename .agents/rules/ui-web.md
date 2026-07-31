@@ -35,6 +35,15 @@
 - 認証は `better-auth/react` の `createAuthClient` + `inferAdditionalFields`(`areaCode` を型付け)を使う
 - 優先度は Must → Should → Could の順に実装する。Could(AI 提案・ダークモード等)を先回りで実装しない
 
+## モダン Web ガイダンス(`modern-web-guidance` スキル)
+
+HTML / CSS / クライアントサイド JS の実装前に [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance)(Google Chrome / Microsoft Edge チーム提供)のスキルで該当ガイドを検索し、レガシーパターンではなくモダンな Web プラットフォーム標準を用いる。
+
+- 対象: モーダル/ポップオーバー、アニメーション・View Transitions、コンテナクエリ、フォーム(`:user-invalid` 等)、アクセシビリティ、Core Web Vitals
+- 対象外: `apps/api`(Hono・Drizzle・Better Auth)/ Docker / CI / Git など非フロントエンドの作業
+- ブラウザ対応方針は**未定義 = スキル既定の Baseline Widely available 準拠**とし、それ未満の機能はガイドのフォールバック指示に従う
+- **スタックの決定(stack.md)が優先**する。ガイドがネイティブ実装を勧めても、shadcn/ui・Tailwind v4・React Hook Form 等の確定スタックを勝手に置き換えない。ガイドは確定スタックの**内側**で活かす(例: shadcn/ui の Dialog を使いつつ、ネイティブ `<dialog>` / `@starting-style` の作法に沿わせる)
+
 ## 表示仕様
 
 - 日付は `YYYY年M月D日`、気温は `℃` 表示。エラーメッセージは日本語
