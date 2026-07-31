@@ -26,6 +26,19 @@
 - `pnpm lint` / `pnpm format`: oxlint / oxfmt(ESLint・Prettier は使わない)
 - `pnpm typecheck` / `pnpm test`: tsc / Vitest
 
+## エージェント設定(ルール・スキル)
+
+**正(ソース・オブ・トゥルース)は `.agents/` 側**。ツール非依存の共通配置であり、Codex はここを直接読む。Claude Code は `.claude/` しか探索しないため、同期スクリプトでコピーする。
+
+```
+.agents/rules/   → .claude/rules/haregi/   (git 管理: .agents 側のみ)
+.agents/skills/  → .claude/skills/         (git 管理: skills-lock.json のみ)
+```
+
+- 同期: **`./scripts/sync-agent-config.sh`**(`--dry-run` で確認のみ)。`.agents/` 側を編集したら実行する
+- **`.claude/` 配下のコピーは生成物**。gitignore 済みで、直接編集しても次回の同期で失われる。変更は必ず `.agents/` 側に加える
+- スキル本体はコミットしない。クローン後は `skills-lock.json` を元に各自のローカルへ復元してから同期する
+
 ## 絶対に守る規約
 
 - **全てのやりとりは日本語で行う**
