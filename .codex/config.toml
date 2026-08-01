@@ -1,0 +1,10 @@
+# Codex のプロジェクト設定。Claude Code 側の同等設定は .mcp.json にある
+# (両ツールで設定ファイルの形式が異なるため、共通化せずそれぞれ持つ)。
+
+[mcp_servers.chrome-devtools]
+command = "npx"
+args = ["-y", "chrome-devtools-mcp@latest"]
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]

@@ -26,6 +26,42 @@
 - `pnpm lint` / `pnpm format`: oxlint / oxfmt(ESLint・Prettier は使わない)
 - `pnpm typecheck` / `pnpm test`: tsc / Vitest
 
+## エージェント設定(ルール・スキル)
+
+**正(ソース・オブ・トゥルース)は `.agents/` 側**。ツール非依存の共通配置であり、Codex はここを直接読む。Claude Code は `.claude/` しか探索しないため、同期スクリプトでコピーする。
+
+```
+.agents/rules/   → .claude/rules/haregi/   (git 管理: .agents 側のみ)
+.agents/skills/  → .claude/skills/         (git 管理: skills-lock.json のみ)
+```
+
+- 同期: **`./scripts/sync-agent-config.sh`**(`--dry-run` で確認のみ)。`.agents/` 側を編集したら実行する
+- **`.claude/` 配下のコピーは生成物**。gitignore 済みで、直接編集しても次回の同期で失われる。変更は必ず `.agents/` 側に加える
+- スキル本体はコミットしない。クローン後は `skills-lock.json` を元に各自のローカルへ復元してから同期する
+
+### MCP サーバー
+
+ブラウザ操作用に **Chrome DevTools MCP** と **Playwright MCP** を導入済み。設定ファイルの形式が両ツールで異なるため、同期スクリプトの対象外とし、それぞれ直接コミットする。
+
+| ツール | 設定ファイル |
+| --- | --- |
+| Claude Code | `.mcp.json`(リポジトリ直下) |
+| Codex | `.codex/config.toml` |
+
+- 用途は**開発中の動作確認・デバッグ**(画面の目視確認、コンソール/ネットワークログ、パフォーマンス計測)。**E2E テストは引き続きスコープ外**であり、Playwright のテストコードをリポジトリに追加しない(`.agents/rules/stack.md`)
+- どちらも `npx` で起動するためネットワークアクセスが必要。Chrome DevTools MCP は Chrome の実体を使う
+- Claude Code は `.mcp.json` のサーバーを初回セッションで**承認する必要がある**(承認するまで `⏸ Pending approval`)
+- MCP 設定に認証情報を直接書かない。必要な場合は環境変数参照にする
+
+### 導入済みスキル
+
+- `modern-web-guidance`(Google Chrome / Microsoft Edge チーム): モダン Web プラットフォームのベストプラクティス集。**`apps/web` の HTML / CSS / クライアントサイド JS を書く前に検索する**(詳細・スタックとの優先関係は `.agents/rules/ui-web.md`)
+  - 復元・更新: `npx modern-web-guidance@latest install` / `npx modern-web-guidance@latest update`
+  - ガイド検索・取得には npx でのネットワークアクセスが必要。テレメトリは `DISABLE_TELEMETRY=1` で無効化できる
+- 他に `kaizen` / `shadcn` / `tdd` / `webapp-testing`
+- `verify-frontend`(**自作・コミット対象**): `apps/web` の実装後に MCP で動作・パフォーマンス・アクセシビリティを検証する手順。閾値は暫定なので、実際の画面を見て調整したら SKILL.md も更新する
+  - 自作スキルは `.gitignore` で negate してコミットする(外部スキルは lockfile 復元でコミットしない)
+
 ## 絶対に守る規約
 
 - **全てのやりとりは日本語で行う**

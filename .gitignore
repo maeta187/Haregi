@@ -32,7 +32,15 @@ npm-debug.log*
 # local tool state
 .claude/settings.local.json
 .omc/
-.agents/skills/
+
+# エージェント設定: 正は .agents/ 側。
+# 外部スキルは skills-lock.json からローカル復元するためコミットしない。
+# 自作スキルのみ negate してコミットする
+.agents/skills/*
+!.agents/skills/verify-frontend/
+# .claude/ 配下は scripts/sync-agent-config.sh が生成するコピー
+.claude/rules/haregi/
+.claude/skills/
 
 # kit
 kit/
