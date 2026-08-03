@@ -8,6 +8,8 @@
 - 実装計画(フェーズ分割・進め方): @docs/implementation-plan.md
 - 公開前チェックリスト(リリースの成立条件): @docs/release-checklist.md
 
+**`docs/rebuildspec.md` は非規範文書**(検討経緯の記録)。古い仕様が残っているため、実装・仕様確認の根拠にしない。正は上記のみ。
+
 ## 現在の状態
 
 設計確定済み・実装はこれから。`docs/` と検証済みの地域マスタ(`master-data/`)のみ存在する。実装は implementation-plan.md のフェーズ順(環境構築 → packages/schema → packages/db → 機能ごとの垂直スライス)に従って進める。**フロント/バックともに TDD**(先にテスト → 実装 → リファクタ)。
