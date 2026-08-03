@@ -6,6 +6,7 @@
 - 要件(何を作るか): @docs/specification.md
 - 技術設計(スタック・データモデル・API・認証): @docs/architecture.md
 - 実装計画(フェーズ分割・進め方): @docs/implementation-plan.md
+- 公開前チェックリスト(リリースの成立条件): @docs/release-checklist.md
 
 ## 現在の状態
 
