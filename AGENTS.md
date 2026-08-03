@@ -2,9 +2,13 @@
 
 天気予報(気温)を見ながら日ごとの服装コーデを記録する Web アプリ。pnpm workspace + Turborepo のモノレポで、TanStack Start(web)+ Hono(api)+ Drizzle/PostgreSQL 構成。
 
+- ターゲットユーザー(誰のために作るか): @docs/persona.md
 - 要件(何を作るか): @docs/specification.md
 - 技術設計(スタック・データモデル・API・認証): @docs/architecture.md
 - 実装計画(フェーズ分割・進め方): @docs/implementation-plan.md
+- 公開前チェックリスト(リリースの成立条件): @docs/release-checklist.md
+
+**`docs/rebuildspec.md` は非規範文書**(検討経緯の記録)。古い仕様が残っているため、実装・仕様確認の根拠にしない。正は上記のみ。
 
 ## 現在の状態
 
@@ -67,7 +71,9 @@
 - **全てのやりとりは日本語で行う**
 - **日付は JST 固定の `YYYY-MM-DD` 文字列**。`Date` オブジェクトを API・DB・コンポーネント境界越しに渡さない
 - **サーバー側バリデーション**: `/api/auth/*` は zValidator を通らないため、signup / updateUser / changePassword の入力検証は Better Auth の `hooks.before` で行う(フロントの Zod 検証は UX 用であり防御ではない)
-- コーデの気温スナップショット(`maxTemperature` / `minTemperature`)はサーバー側が**リクエストの `areaCode`(画面で表示中の地域)**の予報キャッシュから書き込む。気温値をクライアントから受け取らない(決定事項 #29)
+- コーデの気温スナップショット(`maxTemperature` / `minTemperature`)はサーバー側が**リクエストの `snapshotId`(画面に表示していた予報の世代)**が指すキャッシュから書き込む。気温値をクライアントから受け取らない(決定事項 #29 / #30)
+- **`snapshotId` が送られない保存では、既存の気温スナップショットを維持する**(過去日の文言修正で蓄積データを失わない。決定事項 #31)
+- コーデの一括保存は各 item の `updatedAt` で楽観ロックし、不一致は 409(決定事項 #32)
 - 気象庁の予報は改変せず表示し、「出典: 気象庁ホームページ」を常時表示する(法的要件)
 - 依存パッケージの更新は **1パッケージずつ**(全レイヤーが新しいため切り分け可能に保つ)
 

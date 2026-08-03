@@ -4,6 +4,7 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 
 - 作成日: 2026-07-19([rebuildspec.md](./rebuildspec.md) からの分割。検討経緯・盲点レビューの記録はそちらを参照)
 - 更新: 2026-07-25(決定事項 #26〜#29 を追加。バックエンド/フロントエンドのレイヤー構成・TDD 方針・気温スナップショットの基準地域を明確化)
+- 更新: 2026-08-03(設計レビュー反映: 決定事項 #30〜#32 を追加。気温スナップショットの同一性保証(`snapshotId`)・編集時の維持ポリシー・一括 upsert の楽観ロック。併せてキャッシュの last-known-good / 束ね / バックオフ、Coordinate への由来カラム、写真の所有権・EXIF・孤児掃除を明文化)
 - ステータス: 確定(実装は新リポジトリで行う)
 
 ---
@@ -64,7 +65,10 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 | 26 | バックエンドアーキテクチャ | **軽量オニオンアーキテクチャ(機能優先ディレクトリ)** | `apps/api` に domain/application/infrastructure/presentation の4層分離を導入し、外部 I/O(気象庁・DB・Better Auth)への依存をドメインロジックから切り離す。全3機能(認証・天気予報・コーディネート)の規模では DDD 戦術パターン(集約・値オブジェクト等)は過剰と判断し見送り。ディレクトリは既存の機能単位垂直スライス(実装プランのフェーズ4〜6)と一致させるため層優先ではなく機能優先(`features/{auth,forecast,coordinate}/{domain,application,infrastructure,presentation}`)を採用。neverthrow は従来どおり `apps/api` のみだが、適用範囲を infrastructure 層に限定し、application 層以降は型付きエラーの throw/catch に統一する(決定事項 #19 を具体化) |
 | 27 | 開発プロセス | **フロントエンド・バックエンド共に TDD(テスト駆動開発)で実装** | 各層・各コンポーネントとも「失敗するテストを書く(Red)→ 実装して通す(Green)→ リファクタリング(Refactor)」の順で進める。バックエンドは `domain` の純粋ロジックと `application` のユースケースを中心に単体テストを先行させる。フロントエンドは `packages/schema` 側のバリデーション/日付ユーティリティに加え、`apps/web` の React コンポーネントも `@testing-library/react` でテストを先行させる(決定事項 #11 の「UI テスト・E2E はスコープ外」を修正し、**コンポーネントテストはスコープ内・E2E は引き続きスコープ外**とする) |
 | 28 | フロントエンドアーキテクチャ | **機能優先スライス + 副作用の層分離(軽量 FSD 風)** | `apps/web` に Feature-Sliced Design の思想のうち「機能スライス」と「依存方向の一方向ルール」のみを採用し、`features/{auth,forecast,coordinate}/{components,hooks,api,model}` の構成をとる。api 側の軽量オニオン(決定事項 #26)と層が対応(routes ≒ presentation / hooks ≒ application / api ≒ infrastructure / model ≒ domain)するため、実装プランの垂直スライスを web にもそのまま適用でき、両側を同じ語彙で語れる。FSD 本来の6層(app/pages/widgets/features/entities/shared)は全3機能の規模では entities / widgets が空洞化するため採らない。Atomic Design は shadcn/ui と粒度定義が競合するため不採用。グローバル状態管理ライブラリ(Redux / Zustand 等)も不採用(サーバー状態は TanStack Query、セッションは Better Auth client、フォームは RHF が保持するため残余状態がほぼない) |
-| 29 | 気温スナップショットの基準地域 | **保存時に「表示中の地域」の予報から引く** | 表示地域の切替(spec §2.2 Must)があるため、登録地域固定にすると画面に表示されていた気温と DB の記録が食い違い、後から復元できない。`PUT /api/coordinates` のボディに `areaCode` を追加し、サーバーがマスタ照合の上その地域の予報キャッシュから解決する(**気温値そのものはクライアントから受け取らない**原則は維持。決定事項 #21 と併せて §5 参照)。地域をまたいだ記録が同一履歴に混在する点は許容し、「似た気温の日に何を着たか」(Could)の実装時に地域の扱いを再検討する |
+| 29 | 気温スナップショットの基準地域 | **保存時に「表示中の地域」の予報から引く** | 表示地域の切替(spec §2.2 Must)があるため、登録地域固定にすると画面に表示されていた気温と DB の記録が食い違い、後から復元できない。サーバーが表示中地域の予報から解決する(**気温値そのものはクライアントから受け取らない**原則は維持。決定事項 #21 と併せて §5 参照)。地域をまたいだ記録が同一履歴に混在する点は許容し、「似た気温の日に何を着たか」(Could)の実装時に地域の扱いを再検討する。**地域の指定方法は決定事項 #30 で `areaCode` から `snapshotId` に変更した** |
+| 30 | 表示気温と保存値の同一性 | **`snapshotId` を往復させ、表示に使ったのと同一世代のキャッシュから気温を引く** | 決定事項 #29 の当初案(`areaCode` を送りサーバーが保存時に予報を引き直す)では、spec §2.3 の「画面に出ていた気温と記録が一致する」保証を満たせない。表示から保存までの間にキャッシュが更新される・画面が TanStack Query の stale データを表示している・保存時だけ気象庁取得に失敗する、のいずれでも画面と DB が食い違うため。`GET /api/forecast` が予報世代ごとに `snapshotId` を発行し、`PUT /api/coordinates` はそれを送り返す。**気温値をクライアントから受け取らない原則は維持**され(改ざんできるのは「どの世代か」だけで値ではない)、かつサーバーは引き直さない。予報キャッシュは世代単位で保持し、`snapshotId` が失効(世代が破棄済み)している場合は決定事項 #31 に従う。併せて由来(`areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`)を Coordinate に保存し、後から「どの地域・どの地点・いつ発表の予報・stale だったか」を説明できるようにする(§4 参照) |
+| 31 | 編集時のスナップショット | **`snapshotId` が送られない場合は既存の気温・由来を維持する** | 「保存のたびに予報を引き直す」設計だと、過去日のコーデを文言だけ編集した際に予報範囲外となり、蓄積済みの気温が null で上書きされて失われる。気温スナップショットは本アプリの差別化(「気温と紐付けて振り返る」「似た気温の日」「AI 提案」)の土台であり、後から復元できないため、**編集操作で失われないことを最優先**する。実装上は「`snapshotId` があればその世代から引いて上書き、なければ既存値を維持」とし、新規作成・当該週の再計画では前者、過去記録の文言修正では後者が自然に選ばれる。**この挙動は実装前にテストケースとして固定する**(過去日の編集で気温が保持されること・予報範囲外の新規作成で null になること) |
+| 32 | 一括 upsert の競合制御 | **各 item の `updatedAt` で楽観ロックし、不一致は 409** | `PUT /api/coordinates` は最大7件を一括で置き換えるため、2つの画面(別タブ・スマホと PC)で同じ週を開くと、古い画面からの保存が新しい変更を黙って上書きする。ペルソナが「週の初めにまとめて計画する」使い方をする以上、同じ週を複数デバイスで触る状況は例外ではない。読み込み時の `updatedAt` を各 item に含め、サーバー側で DB の値と照合し、不一致なら 409 を返してフロントに再読み込みを促す。新規作成(既存レコードなし)の場合は `updatedAt` を送らない |
 
 ---
 
@@ -199,6 +203,11 @@ export const coordinate = pgTable(
     imageKey: text('image_key'),            // コーデ写真のオブジェクトキー(Should 機能。写真なしは null)
     maxTemperature: real('max_temperature'), // 記録時点の予報最高気温スナップショット(表示中の地域基準。null 可)
     minTemperature: real('min_temperature'), // 記録時点の予報最低気温スナップショット(同上)
+    // ★ 気温スナップショットの由来(決定事項 #30)。気温値だけでは後から出どころを説明できないため併せて保存する
+    areaCode: text('area_code'),                          // 記録時に画面で表示していた府県予報区コード(気温なしは null)
+    tempStation: text('temp_station'),                    // 気温を引いた代表アメダス地点コード(マスタ改訂の影響を切り分ける)
+    forecastIssuedAt: timestamp('forecast_issued_at'),    // 気象庁の予報発表時刻
+    snapshotStatus: text('snapshot_status'),              // 'fresh' | 'stale' | 'unavailable'(取得失敗・予報範囲外は 'unavailable')
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -213,8 +222,10 @@ export const coordinate = pgTable(
 
 - **Prefecture テーブルを廃止**。地域マスタはコード(`packages/schema`)に持ち、user には府県予報区コード(`areaCode`)のみ保存する(正規化とシンプル化)。緯度経度は不要になる
 - **Coordinate に `date` カラムを追加**し、`(userId, date)` を一意制約に(upsert 前提)
-- **Coordinate に気温スナップショット(`maxTemperature` / `minTemperature`)を追加**。保存時にサーバー側がリクエストの `areaCode`(表示中の地域。決定事項 #29)の予報キャッシュから該当日付の気温を引いて書き込み(予報範囲外の日付は null)、「似た気温の過去コーデ参照」「AI コーディネート提案」の材料を初回リリース時点から蓄積する(後から past データを復元するのは困難なため、これだけは Must フェーズで実装する)
+- **Coordinate に気温スナップショット(`maxTemperature` / `minTemperature`)を追加**。保存時にサーバー側が `snapshotId`(表示中の地域の予報世代。決定事項 #29 / #30)から該当日付の気温を引いて書き込み(予報範囲外の日付は null)、「似た気温の過去コーデ参照」「AI コーディネート提案」の材料を初回リリース時点から蓄積する(後から past データを復元するのは困難なため、これだけは Must フェーズで実装する)
+- **Coordinate に気温スナップショットの由来(`areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`)を追加**(決定事項 #30)。地域切替を許容する以上、気温値だけでは「東京と大阪のどちらを見て記録したか」「代表アメダス地点はどこか」「stale な予報だったか」を後から判別できず、蓄積データの解釈と将来の分析(「似た気温の日」参照・AI 提案)が成立しない
 - パスワードは Better Auth 管理(account テーブルの `password` に scrypt ハッシュ)。現行の bcrypt ハッシュは移行しない(本番ユーザー不在のため)
+- **`updatedAt` は同時編集の競合検出に使う**(決定事項 #32)。`PUT /api/coordinates` の各 item に読み込み時の `updatedAt` を含め、DB の値と不一致なら 409 を返す
 
 マイグレーションは drizzle-kit(`drizzle-kit generate` / `migrate`)で管理する。
 
@@ -225,9 +236,9 @@ export const coordinate = pgTable(
 | メソッド / パス | 認証 | 内容 |
 | --- | --- | --- |
 | `ALL /api/auth/*` | - | Better Auth ハンドラ(signup / login / logout / session / updateUser 等) |
-| `GET /api/forecast?area={code}` | 必要 | 気象庁 JSON から週間予報を取得し整形して返す。`area` 省略時はユーザーの登録地域、指定時はマスタ照合の上その地域(地域切替用)。短期の天気・降水確率は一次細分区域、週間の天気は週間予報区域、気温は代表アメダス地点のデータを地域マスタで解決する |
-| `GET /api/coordinates?from&to` | 必要 | 自分のコーデ一覧(期間指定可)。写真がある場合は短命の署名付き GET URL をレスポンスに同梱(Should) |
-| `PUT /api/coordinates` | 必要 | `{ areaCode, items: [{ date, outerwear, tops, bottoms, imageKey? }] }` を一括 upsert(**items は最大7件**)。気温スナップショットはサーバー側が `areaCode`(**画面で表示中の地域**。マスタ照合必須)の予報キャッシュから該当日付の値を引いて書き込む(予報範囲外の日付・予報取得失敗時は null。**気温値はクライアントから受け取らない**。決定事項 #29) |
+| `GET /api/forecast?area={code}` | 必要 | 気象庁 JSON から週間予報を取得し整形して返す。`area` 省略時はユーザーの登録地域、指定時はマスタ照合の上その地域(地域切替用)。短期の天気・降水確率は一次細分区域、週間の天気は週間予報区域、気温は代表アメダス地点のデータを地域マスタで解決する。レスポンスに **`snapshotId` / `areaCode` / `tempStation` / `fetchedAt` / `forecastIssuedAt` / `status`(`fresh` \| `stale`)** を含める(決定事項 #30) |
+| `GET /api/coordinates?from&to` | 必要 | 自分のコーデ一覧。**`from` <= `to` かつ期間は最大366日**。両方省略時は**直近30件**(日付降順)を返す(履歴の最小版がこれを使う)。写真がある場合は短命の署名付き GET URL をレスポンスに同梱(Should) |
+| `PUT /api/coordinates` | 必要 | `{ snapshotId?, items: [{ date, outerwear, tops, bottoms, imageKey?, updatedAt? }] }` を一括 upsert(**items は最大7件**、日付重複は 400)。気温スナップショットはサーバー側が `snapshotId` の指す**表示に使われたのと同一世代のキャッシュ**から該当日付の値を引いて書き込む(**気温値はクライアントから受け取らない**。決定事項 #29 / #30)。`snapshotId` が無い/失効している場合は既存の気温を維持する(決定事項 #31)。`updatedAt` が DB と不一致なら 409(決定事項 #32) |
 | `DELETE /api/coordinates/:date` | 必要 | 指定日のコーデ削除。写真があればストレージのオブジェクトも削除(Should) |
 | `POST /api/uploads` | 必要 | コーデ写真用の署名付きURL(presigned URL)を発行(Should)。ブラウザからストレージへ直接 PUT し、API サーバーに画像は通さない。**imageKey は `PUT /api/coordinates` で確定させる3ステップフロー**(presign → 直接 PUT → 確定)。確定されなかったキーは孤児オブジェクトとして許容し、定期掃除は Could |
 | `GET /api/doc` | 不要 | Swagger UI(`@hono/swagger-ui`)。`/api/openapi.json` の OpenAPI スキーマを表示する開発用ドキュメント |
@@ -236,7 +247,8 @@ export const coordinate = pgTable(
 
 - セッション判定は `presentation` 層のミドルウェアで `auth.api.getSession({ headers })` を実行し、`c.get('user')` に格納。未認証は 401
 - **レイヤーと エラーハンドリング(neverthrow)**: 外部 I/O(気象庁 JSON 取得・Drizzle・S3)は `infrastructure` 層で `ResultAsync` にラップし、型付きエラー(例: `FetchError | ParseError | UnknownAreaError | DbError`)として返す。`application` 層のユースケースがこれを `.match()` 等で処理し、失敗時は型付きアプリケーションエラーを throw する(neverthrow を層の外へ持ち出さない)。`presentation` 層(ルートハンドラ)は throw されたエラーを `shared/http-errors.ts` の共通マッピングで HTTP ステータス(400 / 401 / 502 等)へ網羅的に変換し、例外を Hono フレームワーク層に漏らさない。気象庁取得にはタイムアウト(`AbortSignal.timeout`)と軽量なリトライを infrastructure 層で併用する
-- リクエストボディは `@hono/zod-validator` + `packages/schema` の Zod スキーマで検証(フロントと同一スキーマ)。`items` の件数上限(最大7件)もここで強制する
+- リクエストボディは `@hono/zod-validator` + `packages/schema` の Zod スキーマで検証(フロントと同一スキーマ)。`items` の件数上限(最大7件)・**リクエスト内の日付重複(400)・実在する暦日であること・保存可能範囲(今日から前後1年)**もここで強制する
+- **空レコードは作らない**。3項目を trim した上ですべて空の item は、upsert ではなく**その日付のレコードを削除**する(specification.md §4)
 - 日付はすべて **JST 基準の `YYYY-MM-DD` 文字列**として API 境界・DB(`date` カラム)・URL パラメータで統一する(§9 参照)
 - 各 feature の `presentation` 層でメソッドチェーンによりルートを定義し、`app.ts` で合成した上で `export type AppType` を公開 → web 側 `hc<AppType>` で型安全に呼ぶ
 - **ロギング(pino)**: `src/shared/logger.ts` の pino インスタンスをリクエストロギングミドルウェアで全ルートに適用し、method / path / status / duration / requestId を構造化(JSON)出力する。neverthrow のエラー分岐でも型付きエラーの内容を pino でログする。ログレベルは `LOG_LEVEL` 環境変数で制御(開発は `debug`、本番は `info` を想定)
@@ -280,7 +292,12 @@ export const coordinate = pgTable(
 ### キャッシュ・障害時挙動
 
 - **地域コード単位でサーバー側キャッシュ(30〜60分)**を行い、気象庁サーバーへの負荷をユーザー数に比例させない(インメモリ前提。デプロイ先決定時に §2 決定事項 #23 の注記を再確認)
-- **気象庁取得失敗時(502)**: フロントは予報部にエラーメッセージと再試行ボタンを表示し、TanStack Query の stale データがあればそれを表示する。コーデ入力・保存は予報なしでも継続できる(スナップショットは null)
+- **世代管理**: キャッシュのエントリは取得ごとに世代 ID(`snapshotId`)を持つ。`GET /api/forecast` はこれをレスポンスに含め、`PUT /api/coordinates` から送り返された `snapshotId` で同一世代を引き当てる(決定事項 #30)。**世代は TTL 切れ後もしばらく保持する**(表示から保存までの間に TTL が切れても引き当てられるように。保持期間は実装時に決める。目安24時間)
+- **last-known-good の保持**: TTL 切れ後の再取得に失敗しても、**最後に成功した予報を破棄せず保持し、`status: 'stale'` として返す**(取得時刻・予報発表時刻を添える)。これにより気象庁側の障害中もユーザーは予報を見られ、そこから保存したコーデには `snapshotStatus: 'stale'` が記録される。ブラウザ側の stale データ表示だけに頼らない
+- **同時リクエストの束ね**: 同一地域への並行した取得要求は1本の fetch にまとめる(in-flight リクエストの共有)。キャッシュ失効の瞬間に同時アクセスが集中しても、気象庁への発信は1回に保つ
+- **リトライ**: 気象庁取得の再試行には**指数バックオフ + ジッター**を用いる(即時連打で相手側に負荷をかけない)。タイムアウトは `AbortSignal.timeout`
+- **気象庁取得失敗時(502)**: フロントは予報部にエラーメッセージと再試行ボタンを表示し、TanStack Query の stale データがあればそれを表示する。コーデ入力・保存は予報なしでも継続できる(スナップショットは null、`snapshotStatus: 'unavailable'`)
+- **マスタの継続検証**: `apps/api/scripts/validate-areas.ts` は CI を持たないため、**リリース前と月次で手動実行する**運用ルールとする(実行しなければ気象庁側の変更検知にならない)。[release-checklist.md](./release-checklist.md) に含める
 
 ### 利用条件(法的整理)
 
@@ -322,7 +339,7 @@ export const auth = betterAuth({
 - **`/api/auth/*` は zValidator を通らない**ため、サーバー側の入力検証は Better Auth の **`hooks.before`** で行う。対象は **signup / updateUser / changePassword** の3つ(パスワード変更・アカウント設定は spec §2.1 の Should だが、検証経路は同じ hook に集約する)。`packages/schema` の Zod スキーマを再利用し、以下をすべてサーバー側で強制する(フロントの Zod 検証は UX 用であり、防御は hooks が担う):
   - パスワードの文字種ルール(小文字英字+数字を含む)— signup / changePassword の両方
   - `areaCode` が地域マスタに実在すること — signup / updateUser の両方
-  - ユーザー名の形式(8文字以上・英数字のみ)— signup / updateUser の両方
+  - ユーザー名の形式(trim 後1〜20文字。文字種の制限なし。spec §4 で現行アプリの「8文字以上・英数字のみ」から緩和)— signup / updateUser の両方
 - パスワードの長さ(8〜20文字)は `emailAndPassword` の `minPasswordLength` / `maxPasswordLength` が全経路で強制するため hook では扱わない
 
 ---
@@ -332,7 +349,11 @@ export const auth = betterAuth({
 - S3 互換 API 前提でコードを書き、契約先(R2 / S3 等)は実装時に決定。ローカル開発は MinIO(Docker)
 - アップロードは **presign → ブラウザから直接 PUT → `PUT /api/coordinates` の `imageKey` で確定**の3ステップ(§5 参照)
 - **サイズ上限(5MB)と形式制限(jpeg / png / webp)をサーバー側で強制するには presigned POST 対応が必要**(それぞれ `content-length-range` / `Content-Type` の条件指定)。R2 は presigned POST 非対応のため、**契約先選定時にこの2点の対応可否を確認する**。presigned PUT で済ませる場合、両制限はフロント側の事前チェックのみとなり防御にならない点を受け入れるかの判断が必要になる
-- 閲覧は短命の署名付き GET URL を API レスポンスに同梱。確定されなかったキー(孤児オブジェクト)は許容し、定期掃除は Could
+- 閲覧は短命の署名付き GET URL を API レスポンスに同梱
+- **オブジェクトキーはユーザー ID をプレフィックスに持つ**(例: `coordinates/{userId}/{uuid}.jpg`)。`PUT /api/coordinates` で `imageKey` を確定する際、**キーのプレフィックスがリクエスト元ユーザーと一致することを検証**する(他人のオブジェクトを自分のコーデに紐付けられないようにする)
+- **presign の発行にはユーザー単位の上限を設ける**(1日あたりの発行回数・累計容量)。無制限だとストレージを容量目的で悪用できる
+- **EXIF の位置情報**: スマホ撮影の写真には GPS 座標が含まれうる。署名付き URL は短命とはいえ、**アップロード前にフロントで EXIF を除去する**方針とする(サーバーを画像が通らない設計上、除去できるのはクライアント側のみ)
+- 確定されなかったキー(孤児オブジェクト)は**無期限には許容しない**。presign 発行から24時間以内に確定されなかったキーを削除する掃除を、写真機能の実装と同時に用意する(当初は「掃除は Could」としていたが、孤児を放置できる前提は上記の悪用リスクと両立しない)
 - **サムネイルは生成しない**。履歴一覧(spec §2.3 Should)でも原寸オブジェクトの署名付き URL を CSS で縮小表示する。画像を API サーバーに通さない原則(presign 方式)とサーバー側リサイズは両立しないため、転送量が問題になった時点で別途検討する(Could)
 - user 削除時、DB は cascade で消えるがストレージのオブジェクトは残る(孤児として同様に扱う)
 
