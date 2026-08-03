@@ -2,6 +2,7 @@
 
 天気予報(気温)を見ながら日ごとの服装コーデを記録する Web アプリ。pnpm workspace + Turborepo のモノレポで、TanStack Start(web)+ Hono(api)+ Drizzle/PostgreSQL 構成。
 
+- ターゲットユーザー(誰のために作るか): @docs/persona.md
 - 要件(何を作るか): @docs/specification.md
 - 技術設計(スタック・データモデル・API・認証): @docs/architecture.md
 - 実装計画(フェーズ分割・進め方): @docs/implementation-plan.md
