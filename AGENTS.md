@@ -25,7 +25,7 @@
 ## コマンド(ルート・計画)
 
 - `pnpm docker`: PostgreSQL 起動
-- `pnpm dev`: web(:3000)+ api(:3001)を並行起動。web が `/api/*` を api へプロキシ
+- `pnpm dev`: web(:3000)+ api(:4000)を並行起動。web が `/api/*` を api へプロキシ
 - `pnpm db:generate` / `pnpm db:migrate` / `pnpm db:seed`: drizzle-kit / シード
 - `pnpm lint` / `pnpm format`: oxlint / oxfmt(ESLint・Prettier は使わない)
 - `pnpm typecheck` / `pnpm test`: tsc / Vitest
