@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    // dev は `node src/index.ts`(型ストリッピング)で動かすため、相対 import に
+    // `.ts` 拡張子が必要。build 時は rewriteRelativeImportExtensions が `.js` へ書き換える
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
