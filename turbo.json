@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      // turbo は既定でタスクへ環境変数を渡さない。api の待受ポートと
+      // Vite プロキシの転送先を揃えるため、この2つは素通しする
+      "passThroughEnv": ["API_PORT", "API_ORIGIN"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".output/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    }
+  }
+}

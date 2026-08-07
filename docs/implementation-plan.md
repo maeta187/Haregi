@@ -4,6 +4,7 @@
 
 - 作成日: 2026-07-20
 - 更新: 2026-08-03(設計レビュー反映: 最小履歴フェーズ(6c)と公開前ゲート(フェーズ8)を追加。気温スナップショットのテスト要件を明記)
+- 更新: 2026-08-07(フェーズ1のスコープを改定: ツールチェーンが実際に機能することを確認するため、疎通の骨格スタブとそのテストを含める。従来の「機能コードを一切含めない」から変更)
 - スコープ: Must 機能(初回リリース)まで。**最小履歴(`/history` 直近30件)は Must へ昇格したため本プランに含む**(フェーズ6c)。その他の Should 機能(履歴の拡張・設定・削除・天気アイコン・写真アップロード)は本プランの対象外(後続で順次追加)
 - 要件は [specification.md](./specification.md)、技術設計は [architecture.md](./architecture.md) を参照
 
@@ -11,7 +12,17 @@
 
 ## フェーズ1: 環境構築(独立・単独コミット)
 
-機能コードを一切含めない。ワークスペースの骨組みとツールチェーンのみ。
+ワークスペースの骨組みとツールチェーン、および**疎通の骨格スタブ**まで。要件由来の機能(認証・予報取得・コーデ保存)は一切含めない。
+
+> **スコープ改定(2026-08-07)**: 当初は「機能コードを一切含めない・`package.json` + `tsconfig.json` のみ」と定義していたが、それだけでは Vitest / TanStack Start / Hono が**実際に動くかを確認できないまま**次フェーズへ進むことになり、決定事項 #22(問題発生時にレイヤーを切り分けられる状態を保つ)の目的を果たせない。そこで**最小の骨格スタブとそのテスト**をフェーズ1に含める。スタブも例外なく TDD(Red → Green → Refactor)で書き、`--passWithNoTests` に頼らない。
+
+**骨格スタブに含めてよいもの(この範囲を超えない)**
+
+- `apps/api`: `GET /api/health` を返す Hono アプリと `@hono/node-server` のエントリ、`API_PORT` の解決
+- `apps/web`: TanStack Start の最小構成(`router.tsx` / `routes/__root.tsx` / `routes/index.tsx`)、ランディングの最小コンポーネント、Vite dev proxy(`/api/*` → :4000)、Vitest(jsdom)+ Testing Library のセットアップ
+- `packages/schema` / `packages/db`: 空のエントリ(実体はフェーズ2・3)
+
+**含めないもの**: 認証・予報取得・コーデ保存に関わるコード、Better Auth / Drizzle / Zod / Tailwind / shadcn の導入、`features/` 配下のディレクトリ骨格(フェーズ4b)。
 
 **作成するもの**
 
@@ -23,14 +34,17 @@
 - `docker-compose.yml`(PostgreSQL のみ。MinIO は Should フェーズまで追加しない)
 - `.env.example`(`DATABASE_URL` / `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` / `WEB_ORIGIN` / `API_PORT` / `API_ORIGIN` / `LOG_LEVEL`)
 - `.gitignore` 更新(`!.env.example` の追加等)
-- 4ワークスペースの最小スタブ(`apps/web` `apps/api` `packages/db` `packages/schema` の `package.json` + `tsconfig.json` のみ。スコープは `@haregi/*`)
+- 4ワークスペース(`apps/web` `apps/api` `packages/db` `packages/schema`)の `package.json` + `tsconfig.json`。スコープは `@haregi/*`
+- 上記の骨格スタブと、それを固定する Vitest(**先に書く**):
+  - `apps/api`: `GET /api/health` が 200 + `{ status: 'ok' }` を返すこと / `API_PORT` 未設定時に 4000 を使い、不正値を拒否すること
+  - `apps/web`: ランディングがアプリ名を `<h1>` で表示すること / Vite が `/api` をプロキシし、3000 番ポートに固定すること / **プロキシ先が api と同じ `API_PORT`(または `API_ORIGIN`)から解決され、非既定ポートでも両者がずれないこと**
 
 **検証**
 
-- `pnpm install` が通る
+- `pnpm install` が通る(`engines` を満たす Node.js であること)
 - `pnpm docker` で PostgreSQL が起動する(healthcheck が healthy)
-- `pnpm lint` / `pnpm format` / `pnpm typecheck` / `pnpm test` が(対象が空でも)エラーなく走る
-- フロント/バックの疎通確認はしない
+- `pnpm lint` / `pnpm format` / `pnpm typecheck` / `pnpm test` / `pnpm --filter @haregi/web build` が通る
+- `pnpm dev` で web(:3000)と api(:4000)が起動し、`/api/health` が web のプロキシ越しにも応答する
 
 **コミット**: lockfile(`pnpm-lock.yaml`)ごと固定してこのフェーズ単独でコミット(決定事項 #22)。以降のフェーズはこのコミットに積み、フェーズごとにコミットを分ける。
 
@@ -77,13 +91,13 @@ DB スキーマも全機能の土台となるため先に確定させる。
 **合成**
 
 - `src/app.ts`: `shared/openapi.ts` でアプリを構築し pino ロギングミドルウェアを適用 → `features/auth/presentation` のルータをマウント。この時点でメソッドチェーンで `AppType` の骨格をエクスポート
-- `src/index.ts`: @hono/node-server(:3001)
+- `src/index.ts`: @hono/node-server(:4000)
 - `scripts/seed.ts`(`auth.api.signUpEmail` 経由で `admin@example.com` / `password123` / `130000`)
 - Vitest: `domain` の検証ロジック単体テスト、認証ミドルウェアの 401 応答
 
 ### 4b. apps/web
 
-- TanStack Start v1 + React 19 + `@tailwindcss/vite`(Tailwind v4)+ shadcn/ui 導入。Vite dev proxy で `/api/*` → :3001
+- TanStack Start v1 + React 19 + `@tailwindcss/vite`(Tailwind v4)+ shadcn/ui 導入。Vite dev proxy で `/api/*` → :4000
 - **ディレクトリ骨格を先に作る**(決定事項 #28 の機能優先スライス): `src/routes/` / `src/features/{auth,forecast,coordinate}/{components,hooks,api}` / `src/components/ui/`(shadcn 取り込み先)/ `src/lib/`。依存方向は `routes → features → (components/ui, lib, @haregi/schema)` の一方向、`hc<AppType>` / `authClient` の呼び出しは `features/*/api/` のみ(詳細は architecture.md「apps/web のレイヤー構成」)
 - `@testing-library/react` + `@testing-library/jest-dom` を導入し、Vitest の jsdom 環境を設定(コンポーネントテストの基盤。以降の web サブフェーズすべてで使う)
 - `src/lib/`: auth-client(`createAuthClient` + `inferAdditionalFields` で areaCode 型付け)/ api-client(`hc<AppType>` + TanStack Query)。fetch 直書き禁止

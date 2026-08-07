@@ -253,7 +253,7 @@ haregi/
 
 ### 通信経路
 
-- ブラウザ → `apps/web`(:3000)→ `/api/*` を `apps/api`(:3001)へプロキシ
+- ブラウザ → `apps/web`(:3000)→ `/api/*` を `apps/api`(:4000)へプロキシ
   - 開発時は **Vite の dev proxy**、本番は **Nitro のサーバールート**(または前段のリバースプロキシ)で転送
   - 同一オリジンになるため CORS/Cookie の問題を回避
 - `apps/web` は `hc<AppType>`(Hono RPC)+ **TanStack Query** で API を型安全に取得・キャッシュする

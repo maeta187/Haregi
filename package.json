@@ -1,0 +1,28 @@
+{
+  "name": "haregi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docker": "docker compose up -d --wait postgres",
+    "dev": "turbo run dev",
+    "db:generate": "pnpm --filter @haregi/db db:generate",
+    "db:migrate": "pnpm --filter @haregi/db db:migrate",
+    "db:seed": "pnpm --filter @haregi/db db:seed",
+    "lint": "oxlint apps packages",
+    "format": "oxfmt --write package.json pnpm-workspace.yaml turbo.json tsconfig.base.json oxlint.config.ts .oxfmtrc.json apps packages",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "oxfmt": "latest",
+    "oxlint": "latest",
+    "turbo": "latest",
+    "typescript": "7.x",
+    "vitest": "latest"
+  },
+  "engines": {
+    "node": ">=22.22.2 <23"
+  },
+  "packageManager": "pnpm@11.1.1"
+}

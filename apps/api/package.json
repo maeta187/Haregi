@@ -1,0 +1,22 @@
+{
+  "name": "@haregi/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json --noEmit false",
+    "dev": "node src/index.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "latest",
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "vitest": "latest"
+  },
+  "engines": {
+    "node": ">=22.22.2 <23"
+  }
+}
