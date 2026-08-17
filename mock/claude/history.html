@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>コーデ履歴 — Haregi</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./screens.css" />
+    <script src="./theme.js"></script>
+  </head>
+  <body>
+    <svg width="0" height="0" class="sr-only" aria-hidden="true" focusable="false">
+      <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16" />
+      </symbol>
+    </svg>
+
+    <header class="header">
+      <div class="container header__inner">
+        <a class="logo" href="./index.html">
+          <span class="logo__mark" aria-hidden="true">
+            <svg width="16" height="16"><use href="#i-sun" /></svg>
+          </span>
+          Haregi
+        </a>
+        <nav class="nav">
+          <a href="./forecast.html">予報とコーデ</a>
+          <a href="./history.html" aria-current="page">履歴</a>
+          <a href="./settings.html">設定</a>
+        </nav>
+        <div class="header__spacer"></div>
+        <button class="btn btn--ghost btn--sm theme-toggle" type="button" data-theme-toggle aria-label="ライト / ダークを切り替える" title="ライト / ダークを切り替える">
+          <svg class="theme-toggle__sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+          <svg class="theme-toggle__moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+          </svg>
+        </button>
+        <a class="btn btn--ghost btn--sm drawer-trigger" href="./forecast-drawer.html" aria-label="メニューを開く">
+          <svg width="20" height="20" aria-hidden="true"><use href="#i-menu" /></svg>
+        </a>
+        <div class="header__user">
+          <span class="avatar" aria-hidden="true">ハ</span>
+          <span>ハレギ太郎</span>
+          <a class="btn btn--outline btn--sm" href="./landing.html">ログアウト</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="container stack">
+        <p class="mock-note">
+          モック: <code>/history</code>(<strong>最小版・Must</strong>)。<code>GET /api/coordinates</code>(引数省略 = 直近30件・日付降順)を
+          そのまま使い、新規エンドポイントは作らない。表示するのは<strong>日付・3項目・保存気温・記録時の地域名</strong>だけで、
+          写真・集計・フィルタ・ページネーションは持たない(spec §2.3)。気温が null の記録も壊れずに表示する。
+        </p>
+
+        <div class="page-head">
+          <div>
+            <h1>コーデ履歴</h1>
+            <p>保存した記録を新しい順に直近30件まで表示しています。気温は記録した時点の予報です。</p>
+          </div>
+          <span class="badge">6件</span>
+        </div>
+
+        <section class="card">
+          <h2 class="sr-only">記録一覧</h2>
+          <div class="history-list">
+            <div class="history-row">
+              <div class="history-row__date">
+                <strong>2026年8月7日</strong>
+                <span>金</span>
+              </div>
+              <div class="history-row__temps">
+                <div class="day__temps">
+                  <span class="temp-max">33℃</span>
+                  <span class="temp-min">26℃</span>
+                </div>
+                <span class="history-row__area">東京都</span>
+              </div>
+              <div class="history-items">
+                <span class="history-item"><b>アウター</b>なし</span>
+                <span class="history-item"><b>トップス</b>白リネンシャツ</span>
+                <span class="history-item"><b>ボトムス</b>ベージュスラックス</span>
+              </div>
+            </div>
+
+            <div class="history-row">
+              <div class="history-row__date">
+                <strong>2026年8月6日</strong>
+                <span>木</span>
+              </div>
+              <div class="history-row__temps">
+                <div class="day__temps">
+                  <span class="temp-max">31℃</span>
+                  <span class="temp-min">25℃</span>
+                </div>
+                <span class="history-row__area">東京都</span>
+              </div>
+              <div class="history-items">
+                <span class="history-item"><b>アウター</b>なし</span>
+                <span class="history-item"><b>トップス</b>ポロシャツ(ネイビー)</span>
+                <span class="history-item"><b>ボトムス</b>グレースラックス</span>
+              </div>
+            </div>
+
+            <!-- 地域を切り替えて保存した記録(決定事項 #29 / #30)。地域名がないと気温の意味が変わる -->
+            <div class="history-row">
+              <div class="history-row__date">
+                <strong>2026年8月5日</strong>
+                <span>水</span>
+              </div>
+              <div class="history-row__temps">
+                <div class="day__temps">
+                  <span class="temp-max">35℃</span>
+                  <span class="temp-min">27℃</span>
+                </div>
+                <span class="history-row__area">大阪府(切替中に記録)</span>
+              </div>
+              <div class="history-items">
+                <span class="history-item"><b>アウター</b>なし</span>
+                <span class="history-item"><b>トップス</b>半袖シャツ(ストライプ)</span>
+                <span class="history-item"><b>ボトムス</b>リネンパンツ</span>
+              </div>
+            </div>
+
+            <!-- 予報取得に失敗した状態で保存された記録(snapshotStatus: 'unavailable') -->
+            <div class="history-row">
+              <div class="history-row__date">
+                <strong>2026年8月4日</strong>
+                <span>火</span>
+              </div>
+              <div class="history-row__temps">
+                <span class="temp-none">気温なし</span>
+                <span class="history-row__area">記録時に予報を取得できず</span>
+              </div>
+              <div class="history-items">
+                <span class="history-item"><b>アウター</b>なし</span>
+                <span class="history-item"><b>トップス</b>黒Tシャツ</span>
+                <span class="history-item"><b>ボトムス</b>ワイドデニム</span>
+              </div>
+            </div>
+
+            <!-- 前回の予報(stale)から保存された記録 -->
+            <div class="history-row">
+              <div class="history-row__date">
+                <strong>2026年8月3日</strong>
+                <span>月</span>
+              </div>
+              <div class="history-row__temps">
+                <div class="day__temps">
+                  <span class="temp-max">30℃</span>
+                  <span class="temp-min">24℃</span>
+                </div>
+                <span class="history-row__area">東京都 ・ 前回の予報から記録</span>
+              </div>
+              <div class="history-items">
+                <span class="history-item"><b>アウター</b>リネンジャケット</span>
+                <span class="history-item"><b>トップス</b>白カットソー</span>
+                <span class="history-item"><b>ボトムス</b>黒スラックス</span>
+              </div>
+            </div>
+
+            <!-- 一部の項目だけ入力された記録(3項目すべて空なら記録自体が削除される) -->
+            <div class="history-row">
+              <div class="history-row__date">
+                <strong>2026年8月2日</strong>
+                <span>日</span>
+              </div>
+              <div class="history-row__temps">
+                <div class="day__temps">
+                  <span class="temp-max">29℃</span>
+                  <span class="temp-min">23℃</span>
+                </div>
+                <span class="history-row__area">東京都</span>
+              </div>
+              <div class="history-items">
+                <span class="history-item history-item--empty">未入力</span>
+                <span class="history-item"><b>トップス</b>ボーダーT</span>
+                <span class="history-item history-item--empty">未入力</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <p class="hint">
+          写真の併記・期間フィルタ・着用頻度の可視化は Should(初回リリースのスコープ外)。編集は
+          <a href="./forecast.html">予報とコーデ</a>の画面から行います。
+        </p>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__inner">
+        <span class="footer__source">出典: 気象庁ホームページ</span>
+        <span>気温は記録した時点の予報(地域の代表アメダス地点)です。</span>
+        <span class="header__spacer"></span>
+        <span>© 2026 Haregi</span>
+      </div>
+    </footer>
+  </body>
+</html>
