@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Haregi — 気温と一緒に、着たものを残す</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./screens.css" />
+    <script src="./theme.js"></script>
+  </head>
+  <body>
+    <svg width="0" height="0" class="sr-only" aria-hidden="true" focusable="false">
+      <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 18h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.7 1.2A3.2 3.2 0 0 0 7 18Z" />
+      </symbol>
+      <symbol id="i-rain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 15h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.7 1.2A3.2 3.2 0 0 0 7 15Z" />
+        <path d="M9 18.5 8 21M13 18.5 12 21M17 18.5 16 21" />
+      </symbol>
+    </svg>
+
+    <header class="header">
+      <div class="container header__inner">
+        <a class="logo" href="./index.html">
+          <span class="logo__mark" aria-hidden="true">
+            <svg width="16" height="16"><use href="#i-sun" /></svg>
+          </span>
+          Haregi
+        </a>
+        <div class="header__spacer"></div>
+        <button class="btn btn--ghost btn--sm theme-toggle" type="button" data-theme-toggle aria-label="ライト / ダークを切り替える" title="ライト / ダークを切り替える">
+          <svg class="theme-toggle__sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+          <svg class="theme-toggle__moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+          </svg>
+        </button>
+        <!-- 未ログイン時のナビ(ログイン状態で出し分ける。spec §2.4) -->
+        <a class="btn btn--ghost btn--sm" href="./login.html">ログイン</a>
+        <a class="btn btn--sm" href="./signup.html">はじめる</a>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="container">
+        <p class="mock-note">
+          モック: <code>/</code>(ランディング・未ログイン)。ヘッダーのナビはログイン状態で出し分ける(spec §2.4)。
+        </p>
+
+        <section class="hero">
+          <div>
+            <span class="badge badge--today">気象庁の週間予報に対応</span>
+            <h1>気温と一緒に、<br />着たものを残す。</h1>
+            <p class="hero__lead">
+              週の初めに1週間分のコーデをまとめて計画。保存した記録にはその日の予報気温が自動で残るので、
+              「何℃のときに何を着たか」を後から振り返れます。
+            </p>
+            <div class="hero__actions">
+              <a class="btn btn--lg" href="./signup.html">無料ではじめる</a>
+              <a class="btn btn--outline btn--lg" href="./login.html">ログイン</a>
+            </div>
+            <p class="hint" style="margin-top: 14px">
+              メールアドレスとパスワード、お住まいの地域だけで登録できます。
+            </p>
+          </div>
+
+          <div class="hero__visual" aria-hidden="true">
+            <div class="hero__visual-row">
+              <span class="date">8月8日(土)</span>
+              <span class="day__temps"><span class="temp-max">34℃</span><span class="temp-min">26℃</span></span>
+              <span class="outfit">白リネンシャツ / ベージュスラックス</span>
+            </div>
+            <div class="hero__visual-row">
+              <span class="date">8月9日(日)</span>
+              <span class="day__temps"><span class="temp-max">33℃</span><span class="temp-min">26℃</span></span>
+              <span class="outfit">黒Tシャツ / ワイドデニム</span>
+            </div>
+            <div class="hero__visual-row">
+              <span class="date">8月11日(火)</span>
+              <span class="day__temps"><span class="temp-max">28℃</span><span class="temp-min">24℃</span></span>
+              <span class="outfit">レインシェル / 撥水パンツ</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="features">
+          <div class="feature">
+            <span class="feature__icon" aria-hidden="true">
+              <svg width="20" height="20"><use href="#i-sun" /></svg>
+            </span>
+            <h2>1画面で1週間分</h2>
+            <p>週間予報とコーデ入力が同じ画面。7日分をまとめて入力して、一度に保存できます。</p>
+          </div>
+          <div class="feature">
+            <span class="feature__icon" aria-hidden="true">
+              <svg width="20" height="20"><use href="#i-cloud" /></svg>
+            </span>
+            <h2>気温が自動で残る</h2>
+            <p>保存すると、画面に出ていた予報の最高/最低気温がその記録に紐づきます。入力の手間は増えません。</p>
+          </div>
+          <div class="feature">
+            <span class="feature__icon" aria-hidden="true">
+              <svg width="20" height="20"><use href="#i-rain" /></svg>
+            </span>
+            <h2>地域を切り替えて使える</h2>
+            <p>実家や出張先の予報も同じ画面で確認。その地域の気温が記録されるので、後から見ても取り違えません。</p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__inner">
+        <span class="footer__source">出典: 気象庁ホームページ</span>
+        <span>気温は地域の代表アメダス地点の予報です。</span>
+        <span class="header__spacer"></span>
+        <span>© 2026 Haregi</span>
+      </div>
+    </footer>
+  </body>
+</html>

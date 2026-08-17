@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>週間予報とコーデ — Haregi</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./screens.css" />
+    <script src="./theme.js"></script>
+  </head>
+  <body>
+    <svg width="0" height="0" class="sr-only" aria-hidden="true" focusable="false">
+      <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </symbol>
+      <symbol id="i-partly" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8.5" cy="8" r="3" />
+        <path d="M8.5 2.5v1.4M3 8H1.6M4.4 3.9l1 1M15.4 8h1.4" />
+        <path d="M8 20h9a3.2 3.2 0 0 0 .3-6.4A4.6 4.6 0 0 0 8.6 14 3 3 0 0 0 8 20Z" />
+      </symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 18h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.7 1.2A3.2 3.2 0 0 0 7 18Z" />
+      </symbol>
+      <symbol id="i-rain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 15h10a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.7 1.2A3.2 3.2 0 0 0 7 15Z" />
+        <path d="M9 18.5 8 21M13 18.5 12 21M17 18.5 16 21" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+        <path d="M3 3v5h5" />
+      </symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16" />
+      </symbol>
+    </svg>
+
+    <header class="header">
+      <div class="container header__inner">
+        <a class="logo" href="./index.html">
+          <span class="logo__mark" aria-hidden="true">
+            <svg width="16" height="16"><use href="#i-sun" /></svg>
+          </span>
+          Haregi
+        </a>
+        <nav class="nav">
+          <a href="./forecast.html" aria-current="page">予報とコーデ</a>
+          <a href="./history.html">履歴</a>
+          <a href="./settings.html">設定</a>
+        </nav>
+        <div class="header__spacer"></div>
+        <button class="btn btn--ghost btn--sm theme-toggle" type="button" data-theme-toggle aria-label="ライト / ダークを切り替える" title="ライト / ダークを切り替える">
+          <svg class="theme-toggle__sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+          <svg class="theme-toggle__moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+          </svg>
+        </button>
+        <a class="btn btn--ghost btn--sm drawer-trigger" href="./forecast-drawer.html" aria-label="メニューを開く">
+          <svg width="20" height="20" aria-hidden="true"><use href="#i-menu" /></svg>
+        </a>
+        <div class="header__user">
+          <span class="avatar" aria-hidden="true">ハ</span>
+          <span>ハレギ太郎</span>
+          <a class="btn btn--outline btn--sm" href="./landing.html">ログアウト</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="container stack">
+        <p class="mock-note">
+          モック: <code>/forecast</code>(メイン画面・通常状態 = <code>status: 'fresh'</code>)。予報表示部とコーデ入力部を1画面に統合し、
+          1週間分を一括保存する。保存時は表示中の予報の <code>snapshotId</code> と各行の <code>updatedAt</code> を送る(決定事項 #30 / #32)。
+          モバイル幅(900px 以下)では1日1カードに切り替わる。
+        </p>
+
+        <div class="page-head">
+          <div>
+            <h1>今週のコーデ</h1>
+            <p>予報を見ながら、7日分のアウター・トップス・ボトムスをまとめて入力できます。</p>
+          </div>
+          <span class="badge">2026年8月8日(土) 〜 8月14日(金)</span>
+        </div>
+
+        <!-- 予報ヘッダー: 地域切替 + 鮮度・出どころ -->
+        <section class="card">
+          <div class="forecast-bar">
+            <div class="area-picker">
+              <label class="label" for="area">表示地域</label>
+              <select class="select" id="area">
+                <option value="016000">石狩・空知・後志地方</option>
+                <option value="040000">宮城県</option>
+                <option value="130000" selected>東京都(登録地域)</option>
+                <option value="140000">神奈川県</option>
+                <option value="230000">愛知県</option>
+                <option value="270000">大阪府</option>
+                <option value="340000">広島県</option>
+                <option value="400000">福岡県</option>
+                <option value="460040">奄美地方</option>
+                <option value="471000">沖縄本島地方</option>
+              </select>
+            </div>
+            <div class="forecast-meta">
+              <span class="badge badge--today">最新</span>
+              <span>2026年8月8日 11時00分 発表の予報</span>
+              <span class="forecast-meta__sep" aria-hidden="true">|</span>
+              <span>気温は地域の代表地点(東京)の予報です</span>
+            </div>
+            <div class="header__spacer"></div>
+            <button class="btn btn--outline btn--sm" type="button">
+              <svg width="14" height="14" aria-hidden="true"><use href="#i-refresh" /></svg>
+              更新
+            </button>
+          </div>
+        </section>
+
+        <!-- 週間予報 + コーデ入力 -->
+        <section class="card">
+          <h2 class="sr-only">週間予報とコーデ入力</h2>
+          <div class="week">
+            <div class="week__head" aria-hidden="true">
+              <div>日付</div>
+              <div>天気</div>
+              <div>気温</div>
+              <div>アウター</div>
+              <div>トップス</div>
+              <div>ボトムス</div>
+            </div>
+
+            <!-- 今日 -->
+            <div class="day day--today">
+              <div class="day__date">
+                <strong>8月8日</strong>
+                <span class="day__dow day__dow--sat">土 ・ 今日</span>
+              </div>
+              <div class="day__weather">
+                <svg class="wx wx--sun" width="24" height="24" aria-hidden="true"><use href="#i-sun" /></svg>
+                <span>晴れ<br />降水 10%</span>
+              </div>
+              <div class="day__temps">
+                <span class="temp-max">34℃</span>
+                <span class="temp-min">26℃</span>
+              </div>
+              <div class="day__meta">
+                <div class="day__weather">
+                  <svg class="wx wx--sun" width="22" height="22" aria-hidden="true"><use href="#i-sun" /></svg>
+                  <span>晴れ ・ 降水 10%</span>
+                </div>
+                <div class="day__temps">
+                  <span class="temp-max">34℃</span>
+                  <span class="temp-min">26℃</span>
+                </div>
+              </div>
+              <div class="day__field">
+                <label for="d0-outer">アウター</label>
+                <input class="input" id="d0-outer" type="text" value="" placeholder="なし" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d0-tops">トップス</label>
+                <input class="input" id="d0-tops" type="text" value="白リネンシャツ" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d0-bottoms">ボトムス</label>
+                <input class="input" id="d0-bottoms" type="text" value="ベージュスラックス" maxlength="50" />
+              </div>
+            </div>
+
+            <div class="day">
+              <div class="day__date">
+                <strong>8月9日</strong>
+                <span class="day__dow day__dow--sun">日</span>
+              </div>
+              <div class="day__weather">
+                <svg class="wx wx--sun" width="24" height="24" aria-hidden="true"><use href="#i-partly" /></svg>
+                <span>晴れ時々くもり<br />降水 20%</span>
+              </div>
+              <div class="day__temps">
+                <span class="temp-max">33℃</span>
+                <span class="temp-min">26℃</span>
+              </div>
+              <div class="day__meta">
+                <div class="day__weather">
+                  <svg class="wx wx--sun" width="22" height="22" aria-hidden="true"><use href="#i-partly" /></svg>
+                  <span>晴れ時々くもり ・ 降水 20%</span>
+                </div>
+                <div class="day__temps">
+                  <span class="temp-max">33℃</span>
+                  <span class="temp-min">26℃</span>
+                </div>
+              </div>
+              <div class="day__field">
+                <label for="d1-outer">アウター</label>
+                <input class="input" id="d1-outer" type="text" value="" placeholder="なし" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d1-tops">トップス</label>
+                <input class="input is-dirty" id="d1-tops" type="text" value="黒Tシャツ" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d1-bottoms">ボトムス</label>
+                <input class="input is-dirty" id="d1-bottoms" type="text" value="ワイドデニム" maxlength="50" />
+              </div>
+            </div>
+
+            <div class="day">
+              <div class="day__date">
+                <strong>8月10日</strong>
+                <span class="day__dow">月</span>
+              </div>
+              <div class="day__weather">
+                <svg class="wx wx--cloud" width="24" height="24" aria-hidden="true"><use href="#i-cloud" /></svg>
+                <span>くもり<br />降水 40%</span>
+              </div>
+              <div class="day__temps">
+                <span class="temp-max">31℃</span>
+                <span class="temp-min">25℃</span>
+              </div>
+              <div class="day__meta">
+                <div class="day__weather">
+                  <svg class="wx wx--cloud" width="22" height="22" aria-hidden="true"><use href="#i-cloud" /></svg>
+                  <span>くもり ・ 降水 40%</span>
+                </div>
+                <div class="day__temps">
+                  <span class="temp-max">31℃</span>
+                  <span class="temp-min">25℃</span>
+                </div>
+              </div>
+              <div class="day__field">
+                <label for="d2-outer">アウター</label>
+                <input class="input" id="d2-outer" type="text" value="" placeholder="なし" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d2-tops">トップス</label>
+                <input class="input" id="d2-tops" type="text" value="ポロシャツ(ネイビー)" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d2-bottoms">ボトムス</label>
+                <input class="input" id="d2-bottoms" type="text" value="グレースラックス" maxlength="50" />
+              </div>
+            </div>
+
+            <div class="day">
+              <div class="day__date">
+                <strong>8月11日</strong>
+                <span class="day__dow">火</span>
+              </div>
+              <div class="day__weather">
+                <svg class="wx wx--rain" width="24" height="24" aria-hidden="true"><use href="#i-rain" /></svg>
+                <span>雨<br />降水 70%</span>
+              </div>
+              <div class="day__temps">
+                <span class="temp-max">28℃</span>
+                <span class="temp-min">24℃</span>
+              </div>
+              <div class="day__meta">
+                <div class="day__weather">
+                  <svg class="wx wx--rain" width="22" height="22" aria-hidden="true"><use href="#i-rain" /></svg>
+                  <span>雨 ・ 降水 70%</span>
+                </div>
+                <div class="day__temps">
+                  <span class="temp-max">28℃</span>
+                  <span class="temp-min">24℃</span>
+                </div>
+              </div>
+              <div class="day__field">
+                <label for="d3-outer">アウター</label>
+                <input class="input is-dirty" id="d3-outer" type="text" value="レインシェル" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d3-tops">トップス</label>
+                <input class="input" id="d3-tops" type="text" value="半袖カットソー" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d3-bottoms">ボトムス</label>
+                <input class="input" id="d3-bottoms" type="text" value="撥水パンツ" maxlength="50" />
+              </div>
+            </div>
+
+            <div class="day">
+              <div class="day__date">
+                <strong>8月12日</strong>
+                <span class="day__dow">水</span>
+              </div>
+              <div class="day__weather">
+                <svg class="wx wx--rain" width="24" height="24" aria-hidden="true"><use href="#i-rain" /></svg>
+                <span>くもり時々雨<br />降水 60%</span>
+              </div>
+              <div class="day__temps">
+                <span class="temp-max">29℃</span>
+                <span class="temp-min">24℃</span>
+              </div>
+              <div class="day__meta">
+                <div class="day__weather">
+                  <svg class="wx wx--rain" width="22" height="22" aria-hidden="true"><use href="#i-rain" /></svg>
+                  <span>くもり時々雨 ・ 降水 60%</span>
+                </div>
+                <div class="day__temps">
+                  <span class="temp-max">29℃</span>
+                  <span class="temp-min">24℃</span>
+                </div>
+              </div>
+              <div class="day__field">
+                <label for="d4-outer">アウター</label>
+                <input class="input" id="d4-outer" type="text" value="" placeholder="なし" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d4-tops">トップス</label>
+                <input class="input" id="d4-tops" type="text" value="" placeholder="例: 白Tシャツ" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d4-bottoms">ボトムス</label>
+                <input class="input" id="d4-bottoms" type="text" value="" placeholder="例: デニム" maxlength="50" />
+              </div>
+            </div>
+
+            <div class="day">
+              <div class="day__date">
+                <strong>8月13日</strong>
+                <span class="day__dow">木</span>
+              </div>
+              <div class="day__weather">
+                <svg class="wx wx--cloud" width="24" height="24" aria-hidden="true"><use href="#i-cloud" /></svg>
+                <span>くもり<br />降水 30%</span>
+              </div>
+              <div class="day__temps">
+                <span class="temp-max">31℃</span>
+                <span class="temp-min">25℃</span>
+              </div>
+              <div class="day__meta">
+                <div class="day__weather">
+                  <svg class="wx wx--cloud" width="22" height="22" aria-hidden="true"><use href="#i-cloud" /></svg>
+                  <span>くもり ・ 降水 30%</span>
+                </div>
+                <div class="day__temps">
+                  <span class="temp-max">31℃</span>
+                  <span class="temp-min">25℃</span>
+                </div>
+              </div>
+              <div class="day__field">
+                <label for="d5-outer">アウター</label>
+                <input class="input" id="d5-outer" type="text" value="" placeholder="なし" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d5-tops">トップス</label>
+                <input class="input" id="d5-tops" type="text" value="" placeholder="例: 白Tシャツ" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d5-bottoms">ボトムス</label>
+                <input class="input" id="d5-bottoms" type="text" value="" placeholder="例: デニム" maxlength="50" />
+              </div>
+            </div>
+
+            <!-- 週間予報の欠損(空文字 "")を含む日の表示例 -->
+            <div class="day">
+              <div class="day__date">
+                <strong>8月14日</strong>
+                <span class="day__dow">金</span>
+              </div>
+              <div class="day__weather">
+                <svg class="wx wx--sun" width="24" height="24" aria-hidden="true"><use href="#i-sun" /></svg>
+                <span>晴れ<br />降水 —</span>
+              </div>
+              <div class="day__temps">
+                <span class="temp-max">33℃</span>
+                <span class="temp-none">最低 —</span>
+              </div>
+              <div class="day__meta">
+                <div class="day__weather">
+                  <svg class="wx wx--sun" width="22" height="22" aria-hidden="true"><use href="#i-sun" /></svg>
+                  <span>晴れ ・ 降水 —</span>
+                </div>
+                <div class="day__temps">
+                  <span class="temp-max">33℃</span>
+                  <span class="temp-none">最低 —</span>
+                </div>
+              </div>
+              <div class="day__field">
+                <label for="d6-outer">アウター</label>
+                <input class="input" id="d6-outer" type="text" value="" placeholder="なし" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d6-tops">トップス</label>
+                <input class="input" id="d6-tops" type="text" value="" placeholder="例: 白Tシャツ" maxlength="50" />
+              </div>
+              <div class="day__field">
+                <label for="d6-bottoms">ボトムス</label>
+                <input class="input" id="d6-bottoms" type="text" value="" placeholder="例: デニム" maxlength="50" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <p class="hint">
+          各項目は50文字までです。3項目をすべて空にして保存すると、その日の記録は削除されます。
+        </p>
+
+        <!-- 保存バー(未保存の変更あり) -->
+        <div class="savebar">
+          <span class="savebar__status"><strong>未保存の変更が2日分</strong>あります(8月9日・8月11日)</span>
+          <button class="btn btn--outline" type="button">変更を破棄</button>
+          <button class="btn" type="button">1週間分を保存</button>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer__inner">
+        <span class="footer__source">出典: 気象庁ホームページ</span>
+        <span>気温は地域の代表アメダス地点の予報です。</span>
+        <span class="header__spacer"></span>
+        <span>© 2026 Haregi</span>
+      </div>
+    </footer>
+
+    <!-- トースト(sonner)の表示例 -->
+    <div class="toast-area">
+      <div class="toast toast--success">
+        <div>
+          <strong>保存しました</strong>
+          <p>2日分のコーデを保存しました(表示中の予報の気温も記録されました)。</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

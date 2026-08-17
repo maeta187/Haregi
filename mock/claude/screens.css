@@ -1,0 +1,656 @@
+/* Haregi 画面モック 画面固有スタイル */
+
+/* ---------- ページ見出し ---------- */
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-head h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.page-head p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+
+/* ---------- 予報ヘッダー(地域切替 + 鮮度・出どころ) ---------- */
+
+.forecast-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 16px 20px;
+}
+
+.area-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.area-picker .label {
+  white-space: nowrap;
+}
+
+.area-picker .select {
+  width: auto;
+  min-width: 220px;
+  height: 38px;
+}
+
+.forecast-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+
+.forecast-meta__sep {
+  color: var(--border);
+}
+
+/* ---------- 週間予報 + コーデ入力 ---------- */
+
+.week {
+  display: flex;
+  flex-direction: column;
+}
+
+.week__head,
+.day {
+  display: grid;
+  /* 気温は本アプリの主役なので、他のセルより広い専有幅を与える */
+  grid-template-columns: 104px 128px 120px repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  align-items: center;
+  padding: 14px 20px;
+}
+
+.week__head {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.day {
+  border-bottom: 1px solid var(--border);
+}
+
+.day:last-child {
+  border-bottom: 0;
+}
+
+.day--today {
+  background: var(--sky-soft);
+}
+
+.day__date {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.day__date strong {
+  font-size: 15px;
+}
+
+.day__dow {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.day__dow--sat {
+  color: var(--temp-min);
+}
+
+.day__dow--sun {
+  color: var(--destructive);
+}
+
+.day__weather {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  line-height: 1.35;
+}
+
+/* 気温は「読む」ものではなく「一目で掴む」もの。
+   最高気温を主・最低気温を従として、サイズとウェイトで階層をつける。 */
+.day__temps {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.temp-max {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--temp-max);
+}
+
+.temp-min {
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--temp-min);
+}
+
+.temp-none {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--muted-foreground);
+}
+
+.day__field label {
+  display: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+.day__field .input {
+  height: 38px;
+  font-size: 14px;
+}
+
+/* 未保存の変更がある入力を視覚化(実装では dirty 判定に対応) */
+.day__field .input.is-dirty {
+  border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+  background: color-mix(in srgb, var(--warning-bg) 70%, var(--background));
+}
+
+/* モバイルのみで使う天気・気温のまとめ行 */
+.day__meta {
+  display: none;
+}
+
+/* ---------- 保存バー ---------- */
+
+.savebar {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-lg);
+}
+
+.savebar__status {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--muted-foreground);
+}
+
+.savebar__status strong {
+  color: var(--warning);
+}
+
+.savebar--clean .savebar__status strong {
+  color: var(--muted-foreground);
+}
+
+/* ---------- 履歴 ---------- */
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 150px 150px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-row:last-child {
+  border-bottom: 0;
+}
+
+.history-row__date strong {
+  font-size: 15px;
+}
+
+.history-row__date span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.history-row__temps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-row__area {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.history-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted);
+  font-size: 13px;
+}
+
+.history-item b {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted-foreground);
+}
+
+.history-item--empty {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 64px 20px;
+  text-align: center;
+}
+
+.empty-state__icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.empty-state h2 {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+.empty-state p {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+
+/* ---------- ランディング ---------- */
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 40px;
+  align-items: center;
+  padding-block: 48px 24px;
+}
+
+.hero h1 {
+  margin-top: 18px;
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.22;
+}
+
+.hero__lead {
+  margin: 18px 0 0;
+  font-size: var(--text-md);
+  color: var(--muted-foreground);
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.hero__visual {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--sky-soft), var(--card));
+  box-shadow: var(--shadow);
+}
+
+.hero__visual-row {
+  display: grid;
+  grid-template-columns: 74px 92px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+/* ヒーロー内のプレビューは縮小版。予報画面の気温サイズをそのまま使わない */
+.hero__visual-row .temp-max {
+  font-size: 17px;
+}
+
+.hero__visual-row .temp-min {
+  font-size: var(--text-sm);
+}
+
+.hero__visual-row .date {
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.hero__visual-row .outfit {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  padding-block: 40px;
+}
+
+.feature {
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.feature h2 {
+  margin-top: 14px;
+  font-size: var(--text-md);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.feature p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+
+.feature__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--sky-soft);
+  color: var(--sky);
+}
+
+/* ---------- 認証フォーム ---------- */
+
+.auth {
+  width: min(440px, 100%);
+  margin-inline: auto;
+}
+
+.auth__foot {
+  margin: 16px 0 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+
+.auth__foot a {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* ---------- 設定 ---------- */
+
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 設定画面はフォームを中心に置く。
+   フォームだけ中央にすると見出しとの軸がずれるため、注釈・見出し・フォームを
+   同じ measure に揃えてまとめて中央寄せする(HTML の構造は変えない)。 */
+.container:has(> .settings-stack) > * {
+  width: min(680px, 100%);
+  margin-inline: auto;
+}
+
+/* ---------- モック索引 ---------- */
+
+.index-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.index-card {
+  display: block;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  text-decoration: none;
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--dur) var(--ease-out),
+    box-shadow var(--dur) var(--ease-out),
+    transform var(--dur) var(--ease-out);
+}
+
+.index-card:hover {
+  border-color: var(--ring);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+.index-card:active {
+  transform: translateY(0);
+}
+
+.index-card strong {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 700;
+}
+
+.index-card__path {
+  display: inline-block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--sky);
+}
+
+.index-card p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+
+.index-section {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+/* ---------- レスポンシブ(モバイル: 1日1カード) ---------- */
+
+@media (max-width: 900px) {
+  .week {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .week__head {
+    display: none;
+  }
+
+  .day {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .day--today {
+    border-color: color-mix(in srgb, var(--sky) 45%, transparent);
+  }
+
+  /* デスクトップ用の天気・気温セルを隠し、まとめ行に切り替える */
+  .day > .day__weather,
+  .day > .day__temps {
+    display: none;
+  }
+
+  .day__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+  }
+
+  .day__meta .day__weather {
+    display: flex;
+  }
+
+  .day__field label {
+    display: block;
+  }
+
+  .day__field .input {
+    height: 42px;
+    font-size: 16px; /* iOS の自動ズーム回避 */
+  }
+
+  .history-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .history-row__temps {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .savebar {
+    flex-wrap: wrap;
+    border-radius: var(--radius);
+  }
+
+  .savebar__status {
+    flex-basis: 100%;
+  }
+
+  .savebar .btn {
+    flex: 1;
+  }
+}
+
+@media (max-width: 860px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding-block: 32px 8px;
+  }
+
+  .hero h1 {
+    font-size: 32px;
+    letter-spacing: -0.025em;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+  }
+
+  .forecast-bar {
+    align-items: stretch;
+  }
+
+  .area-picker {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .area-picker .select {
+    width: 100%;
+  }
+}
+
+/* ---------- 天気アイコン(スプライト) ---------- */
+
+.wx {
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.wx--sun {
+  color: var(--wx-sun);
+}
+
+.wx--cloud {
+  color: var(--wx-cloud);
+}
+
+.wx--rain {
+  color: var(--wx-rain);
+}
