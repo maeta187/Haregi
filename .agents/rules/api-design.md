@@ -35,26 +35,37 @@
   ```
 
 - **更新・削除系は `WHERE id = ?` だけで引かず、必ず `AND user_id = ?` を併記する**(IDOR の典型的な穴)。`PUT /api/coordinates` は `(userId, date)` 一意の upsert、`DELETE /api/coordinates/:date` も `userId` を条件に含める
-- **`PUT /api/coordinates` の空入力による削除分岐も同じ扱い**。3項目が trim 後すべて空の item はその日付のレコード削除に分岐する(`validation.md`)ため、**`WHERE date = ?` ではなく `WHERE user_id = ? AND date = ? AND updated_at = ?` で引く**(所有者条件と楽観ロックを同じ条件付き書き込みに含める)。削除分岐は upsert と**同一トランザクション**内で行い、同じリクエスト内の他 item と原子性を共有する
+- **`PUT /api/coordinates` の空入力による削除分岐も同じ扱い**。3項目が trim 後すべて空の item はその日付のレコード削除に分岐する(`validation.md`)ため、**`WHERE date = ?` ではなく `WHERE user_id = ? AND date = ? AND version = ?` で引く**(所有者条件と楽観ロックを同じ条件付き書き込みに含める)。削除分岐は upsert と**同一トランザクション**内で行い、同じリクエスト内の他 item と原子性を共有する
 - **他人のリソースを指定された場合と存在しない場合を区別しない**。403 ではなく **404(または該当0件)で統一**する(403 を返すと ID の存在自体が漏れる)
 - 写真(Should)は DB の外にあり同じ仕組みで守れないため、`imageKey` のプレフィックス(`coordinates/{userId}/`)がリクエスト元ユーザーと一致することを `PUT /api/coordinates` で検証する(architecture.md §8)
 - **この保証を担保するのはテスト**(RLS という DB 側の網がない以上、代替はテストしかない)。必須ケースは `testing.md` を参照
 
 ## 楽観ロック(決定事項 #32)
 
-- **`updatedAt` は既存レコードに対して必須**。送らない item は新規作成の意思表示として扱い、既存レコードに当たったら **409**。
+**トークンは `version`(単調増加する整数)を使う。`updatedAt` を楽観ロックに使わない。**
+`updatedAt` のような wall-clock 値は、カラム精度内で同値になる場合や NTP による時計の逆行で
+「更新後も旧トークンが一致する」状態を作りうる。等値照合のトークンに必要な「版ごとに必ず値が変わる」性質を
+時計に依存せず満たすため、`version` を DB 内でインクリメントする(`updatedAt` は監査用の情報カラムとして残す)。
+
+- **`version` は既存レコードに対して必須**。送らない item は新規作成の意思表示として扱い、既存レコードに当たったら **409**。
   任意のままだと値を省略するだけでロックを迂回でき、更新の無言上書きと(空入力の場合は)レコード削除まで通ってしまう(**fail-closed**)
 - **照合と書き込みを分けない**。「SELECT して比較 → UPDATE / DELETE」の二段構えは、並行リクエストが両方とも照合を通過する
-  TOCTOU を残す。**`WHERE user_id = ? AND date = ? AND updated_at = ?` の条件付き書き込みを1文で実行し、
+  TOCTOU を残す。**`WHERE user_id = ? AND date = ? AND version = ?` の条件付き書き込みを1文で実行し、
   更新件数が0なら競合(409)**として扱う
-- **成功した書き込みでは `updated_at` を必ず新しい値へ前進させる**(`SET ... , updated_at = clock_timestamp()`)。
-  これを書かないと更新後も旧トークンが有効なままで、同じ `updatedAt` を持つ後続リクエストが何度でも条件を満たし、
-  **並行保存が両方成功する**。`updated_at` は**等値照合のトークン**であり、必要な性質は「版ごとに値が変わること」。
-  DB 側の `defaultNow()` は INSERT 時の既定値にすぎず、UPDATE では発火しないため**アプリ側で明示的に SET する**
-- **保存後の新しい `updatedAt` をレスポンスで返す**。返さないとフロントは再取得するまで次の保存ができず、
+- **成功した更新では同じ文の中で `version = version + 1` する**(併せて `updated_at = clock_timestamp()` も更新する)。
+  DB 側でインクリメントするため、値の生成に時計もアプリの状態も介在せず、**旧トークンは必ず一致しなくなる**
+
+  ```sql
+  UPDATE coordinate
+     SET outerwear = ?, tops = ?, bottoms = ?, version = version + 1, updated_at = clock_timestamp()
+   WHERE user_id = ? AND date = ? AND version = ?
+  RETURNING version
+  ```
+
+- **保存後の新しい `version` をレスポンスで返す**。返さないとフロントは再取得するまで次の保存ができず、
   「保存 → 続けて編集」で必ず 409 になる
-- **空入力による削除分岐も同じ条件付き書き込みで行う**(`updated_at` を条件から外さない)
-- 新規作成は `(userId, date)` 一意制約に委ね、**衝突を 409 に変換**する(先に SELECT して存在確認しない)
+- **空入力による削除分岐も同じ条件付き書き込みで行う**(`version` を条件から外さない)
+- 新規作成は `version = 1` で INSERT し、`(userId, date)` 一意制約に委ねて**衝突を 409 に変換**する(先に SELECT して存在確認しない)
 - 一括リクエストは**単一トランザクション**で処理し、**1件でも競合したら全件ロールバック**する(部分適用を作らない)
 
 ### 空入力 item の扱い(削除分岐と no-op の区別)
@@ -63,7 +74,7 @@
 ペルソナは週初めに1週間分をまとめて入力するため、**未入力の日が残った状態での一括送信が常態**であり、
 ここで 409 を返すとバッチ全体が失敗して通常操作が成り立たない(persona.md)。
 
-| 自分のレコード | `updatedAt` | 応答 |
+| 自分のレコード | `version` | 応答 |
 | --- | --- | --- |
 | ない | 省略 / 任意の値 | **no-op**(200。何も作らず、何も消さない) |
 | ある | 一致 | 削除(200) |
@@ -71,7 +82,7 @@
 
 実装手順(この順序を守る):
 
-1. `DELETE ... WHERE user_id = ? AND date = ? AND updated_at = ?` を実行(`updatedAt` がある場合)
+1. `DELETE ... WHERE user_id = ? AND date = ? AND version = ?` を実行(`version` がある場合)
 2. 削除件数が0なら、**同一トランザクション内で** `SELECT ... WHERE user_id = ? AND date = ? FOR UPDATE` により存在を確認する
    - 存在する → **409**(不一致または省略)
    - 存在しない → **no-op**
@@ -103,7 +114,7 @@
 
 - `GET /api/forecast?area={code}`: `area` 省略時は登録地域、指定時はマスタ照合の上その地域
 - `GET /api/coordinates?from&to`: **セッションのユーザーのコーデのみ**(`from <= to` / 最大366日 / 両方省略で直近30件)。写真があれば短命の署名付き GET URL を同梱
-- `PUT /api/coordinates`: 一括 upsert(`(userId, date)` 一意)。items 最大7件。ボディの **`snapshotId`(表示していた予報の世代)**が指すキャッシュから気温スナップショットを書き込む(決定事項 #30)。`snapshotId` が無い/失効時は既存の気温・由来を維持(#31)。**既存レコードへの書き込みは `updatedAt` を必須とし、不一致・省略のいずれも 409**(#32。下記「楽観ロック」参照)
+- `PUT /api/coordinates`: 一括 upsert(`(userId, date)` 一意)。items 最大7件。ボディの **`snapshotId`(表示していた予報の世代)**が指すキャッシュから気温スナップショットを書き込む(決定事項 #30)。`snapshotId` が無い/失効時は既存の気温・由来を維持(#31)。**既存レコードへの書き込みは `version` を必須とし、不一致・省略のいずれも 409**(#32。上記「楽観ロック」参照)。成功時は `version` を +1 して、新しい値をレスポンスで返す
 - `DELETE /api/coordinates/:date`: **セッションのユーザーのレコードのみ**を対象にする。写真があればストレージのオブジェクトも削除
 - `POST /api/uploads`: presign → ブラウザ直接 PUT → `PUT /api/coordinates` の `imageKey` で確定の3ステップ。画像を API サーバーに通さない(サムネイル生成もしない)。孤児オブジェクトは許容
 - `GET /api/doc` / `GET /api/openapi.json`: Swagger UI と OpenAPI 定義(認証不要)
