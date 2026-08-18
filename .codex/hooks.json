@@ -1,0 +1,59 @@
+{
+  "description": "スタック逸脱と生成物の編集を止め、応答終了時に変更ファイルを検証する。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Write|Edit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.agents/hooks/guard-file-edits.sh\"",
+            "timeout": 10,
+            "statusMessage": "編集先を確認しています"
+          }
+        ]
+      },
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.agents/hooks/guard-stack.sh\"",
+            "timeout": 10,
+            "statusMessage": "依存の追加を確認しています"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.agents/hooks/verify-changes.sh\"",
+            "timeout": 300,
+            "statusMessage": "変更ファイルを検証しています"
+          },
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.agents/hooks/notify.sh\"",
+            "timeout": 10,
+            "statusMessage": "通知しています"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.agents/hooks/verify-changes.sh\"",
+            "timeout": 300,
+            "statusMessage": "変更ファイルを検証しています"
+          }
+        ]
+      }
+    ]
+  }
+}
