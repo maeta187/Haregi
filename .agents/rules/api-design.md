@@ -113,7 +113,7 @@
 
 ## エンドポイント仕様(architecture.md §5 に従う)
 
-- `GET /api/forecast?area={code}`: `area` 省略時は登録地域、指定時はマスタ照合の上その地域。レスポンスの `snapshotId` は `forecast_snapshot` に永続化された世代を指す(決定事項 #34)
+- `GET /api/forecast?area={code}`: `area` 省略時は登録地域、指定時はマスタ照合の上その地域。レスポンスの `snapshotId` は `forecast_snapshot` に永続化された世代を指す(決定事項 #34)。**200 を返すときは必ず引き当て可能な `snapshotId` を返す** — last-known-good を `status: 'stale'` として返す場合も新しい世代行を発行する(発行しないと、障害が24時間を超えた時点で保存が 409 ループになる)
 - `GET /api/coordinates?from&to`: **セッションのユーザーのコーデのみ**(`from <= to` / 最大366日 / 両方省略で直近30件)。写真があれば短命の署名付き GET URL を同梱
 - `PUT /api/coordinates`: 一括 upsert(`(userId, date)` 一意)。items 最大7件。ボディの **`snapshotId`(表示していた予報の世代)**が指す `forecast_snapshot` の行から気温スナップショットを書き込む(決定事項 #30 / #34)。**`snapshotId` が無い場合は既存の気温・由来を維持(#31)、送られたのに解決できない場合は 409**(黙って null / 既存維持にしない。#35)。**既存レコードへの書き込みは `version` を必須とし、不一致・省略のいずれも 409**(#32。上記「楽観ロック」参照)。成功時は `version` を +1 して、新しい値をレスポンスで返す
 - `DELETE /api/coordinates/:date`(**Should**。実装は削除機能に着手する時点): **セッションのユーザーのレコードのみ**を対象にする。写真があればストレージのオブジェクトも削除。**読み込み時の `version` を必須入力とし**(クエリまたはボディ)、`WHERE user_id = ? AND date = ? AND version = ?` の条件付き削除を実行して**削除件数0なら 409**(存在しない場合と競合を区別する必要があれば `PUT` の空入力 item と同じ手順で判定する)。所有者条件だけでは、別タブで更新された最新版を確認しないまま古いタブから削除でき、楽観ロックが `PUT` 経路にしか効かない状態になる

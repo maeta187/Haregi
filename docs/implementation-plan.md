@@ -119,14 +119,14 @@ DB スキーマも全機能の土台となるため先に確定させる。
 
 - `domain/`: `Forecast` 型と、`[短期, 週間]` の2要素配列を `weatherArea` / `weeklyArea` / `tempStation` / `forecastCode` で解決して正規化する**純粋関数**(外部依存なし)。週間は翌日始まりのため当日気温を短期から補完、`""` 欠損は null 化するロジックもここに置く
 - `infrastructure/`: 気象庁 JSON 取得(`AbortSignal.timeout` + **指数バックオフ + ジッターのリトライ**)と地域コード単位のインメモリキャッシュ(30〜60分)を実装するアダプタ。domain の正規化関数を呼び出し、**`ResultAsync<Forecast, FetchError | ParseError | UnknownAreaError>` を生成するのはこの層のみ**(消費は application)。キャッシュは以下を満たす(決定事項 #30、architecture.md「キャッシュ・障害時挙動」):
-  - 取得ごとに**世代 ID(`snapshotId`)**を発行し、**`forecast_snapshot` テーブル(PostgreSQL)へ永続化**する(決定事項 #34)。`snapshotId` からの引き当ては**DB を参照**し、インメモリキャッシュには世代を置かない(プロセス再起動・別インスタンスでも解決できるようにするため)。保持は24時間で、取得時に期限切れの行を掃除する
+  - 取得ごとに**世代 ID(`snapshotId`)**を発行し、**`forecast_snapshot` テーブル(PostgreSQL)へ永続化**する(決定事項 #34)。`snapshotId` からの引き当ては**DB を参照**し、インメモリキャッシュには世代を置かない(プロセス再起動・別インスタンスでも解決できるようにするため)。保持は24時間。**失効の判定は引き当てクエリの条件(`created_at > now() - interval '24 hours'`)で行い**、期限切れの行が残っていても引き当てを失敗させる(掃除の実行有無に失効判定を依存させない)。行の掃除は取得時に走らせるが容量管理の位置づけ
   - インメモリキャッシュ(TTL 30〜60分)の役割は**気象庁への発信抑制のみ**とする
-  - 再取得に失敗しても**最後に成功した予報を破棄せず** `status: 'stale'` として返す(last-known-good)
+  - 再取得に失敗しても**最後に成功した予報を破棄せず** `status: 'stale'` として返す(last-known-good)。**このとき新しい `forecast_snapshot` 行を発行し、有効な `snapshotId` を返す** — `GET` が 200 を返す限り引き当て可能であるという不変条件を保つ(決定事項 #34)。破ると障害24時間超で 409 ループに陥り、Must『予報が取れなくてもコーデ入力・保存は継続できる』を満たせない
   - 同一地域への**並行取得を1本の fetch に束ねる**(in-flight 共有)
-- `application/`: `getForecast(areaCode)` ユースケース。infrastructure の呼び出し結果を `.match()` で処理し、失敗時は型付きアプリケーションエラー(例: `ForecastUnavailableError`)を throw する(neverthrow をこの層の外へ持ち出さない)。`snapshotId` から予報を引く `getForecastBySnapshotId(snapshotId)` も提供する(コーデ保存が使う)。**引き当てに失敗した場合は型付きエラー(例: `SnapshotUnavailableError`)を返し、409 へマッピングする**(決定事項 #35)
+- `application/`: `getForecast(areaCode)` ユースケース。infrastructure の呼び出し結果を `.match()` で処理し、失敗時は型付きアプリケーションエラー(例: `ForecastUnavailableError`)を throw する(neverthrow をこの層の外へ持ち出さない)。`snapshotId` から予報を引く `getForecastBySnapshotId(snapshotId)` も提供する(コーデ保存が使う)。**引き当ては有効期限つきで行い**(`created_at > now() - interval '24 hours'`)、**失敗した場合は型付きエラー(例: `SnapshotUnavailableError`)を返して 409 へマッピングする**(決定事項 #35)
 - `presentation/`: `GET /api/forecast?area={code}`(`area` 省略時は登録地域、指定時はマスタ照合の上その地域)を `@hono/zod-openapi` の `createRoute` で定義し `/api/doc` に自動反映。レスポンスに `snapshotId` / `areaCode` / `tempStation` / `fetchedAt` / `forecastIssuedAt` / `status` を含める。throw されたエラーを `shared/http-errors.ts` 経由で 400/502 へ変換
 - `scripts/validate-areas.ts`(`master-data/validate-areas.mjs` を移植。気象庁側の変更検知に継続利用。**リリース前と月次で手動実行する**運用とする)
-- Vitest: `domain` の正規化ロジック(fixture: 通常・欠損 `""`・奄美/十勝の親区分解決)・`infrastructure` のキャッシュ動作(**TTL 切れ後の last-known-good・同時リクエストの束ね**)・**世代の永続化**(`forecast_snapshot` への書き込み / **インメモリキャッシュを空にしても引き当てられること** / 24時間超の掃除)・`application` のエラー変換
+- Vitest: `domain` の正規化ロジック(fixture: 通常・欠損 `""`・奄美/十勝の親区分解決)・`infrastructure` のキャッシュ動作(**TTL 切れ後の last-known-good・同時リクエストの束ね**)・**世代の永続化**(`forecast_snapshot` への書き込み / **インメモリキャッシュを空にしても引き当てられること** / **期限切れの行が残ったままでも引き当てが失敗すること**(掃除ではなくクエリ条件で失効を判定しているか) / **stale 応答でも新しい世代が発行され、その `snapshotId` が引き当て可能であること**)・`application` のエラー変換
 
 ### 5b. apps/web
 
@@ -150,6 +150,7 @@ DB スキーマも全機能の土台となるため先に確定させる。
   - `snapshotId` なしで既存レコードを更新したとき、保存済みの気温・`areaCode`・`forecastIssuedAt` が維持されること
   - 予報範囲外の日付を新規作成したとき、気温が null かつ `snapshotStatus: 'unavailable'` になること
   - **解決できない `snapshotId` を送った保存が 409 になること**(決定事項 #35)。`snapshotId` を**省略**した保存が 409 にならず既存維持で成功することと対で固定する
+  - **気象庁の障害が24時間を超えた状況でも、stale の `GET` から得た `snapshotId` で保存が成功し `snapshotStatus: 'stale'` が記録されること**(409 ループにならないこと。決定事項 #34 の不変条件)
   - `version` が DB と不一致の item を含む保存が 409 になり、**同一リクエスト内の他の item も適用されない**こと
   - **既存レコードに対して `version` を省略した保存が 409 になること**(fail-closed。任意扱いのままだと値を送らないだけでロックを迂回でき、無言の上書きと空入力時のレコード削除が通る)
   - **同一レコードへの並行保存で、後着の1本が 409 になること**(条件付き書き込みの更新件数0を競合として扱えているか。事前照合と書き込みを分けた実装では両方通過する)
