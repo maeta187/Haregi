@@ -35,10 +35,21 @@
   ```
 
 - **更新・削除系は `WHERE id = ?` だけで引かず、必ず `AND user_id = ?` を併記する**(IDOR の典型的な穴)。`PUT /api/coordinates` は `(userId, date)` 一意の upsert、`DELETE /api/coordinates/:date` も `userId` を条件に含める
-- **`PUT /api/coordinates` の空入力による削除分岐も同じ扱い**。3項目が trim 後すべて空の item はその日付のレコード削除に分岐する(`validation.md`)ため、**`WHERE date = ?` ではなく `WHERE user_id = ? AND date = ?` で引く**。削除分岐は upsert と**同一トランザクション**内で行い、同じリクエスト内の他 item と原子性を共有する
+- **`PUT /api/coordinates` の空入力による削除分岐も同じ扱い**。3項目が trim 後すべて空の item はその日付のレコード削除に分岐する(`validation.md`)ため、**`WHERE date = ?` ではなく `WHERE user_id = ? AND date = ? AND updated_at = ?` で引く**(所有者条件と楽観ロックを同じ条件付き書き込みに含める)。削除分岐は upsert と**同一トランザクション**内で行い、同じリクエスト内の他 item と原子性を共有する
 - **他人のリソースを指定された場合と存在しない場合を区別しない**。403 ではなく **404(または該当0件)で統一**する(403 を返すと ID の存在自体が漏れる)
 - 写真(Should)は DB の外にあり同じ仕組みで守れないため、`imageKey` のプレフィックス(`coordinates/{userId}/`)がリクエスト元ユーザーと一致することを `PUT /api/coordinates` で検証する(architecture.md §8)
 - **この保証を担保するのはテスト**(RLS という DB 側の網がない以上、代替はテストしかない)。必須ケースは `testing.md` を参照
+
+## 楽観ロック(決定事項 #32)
+
+- **`updatedAt` は既存レコードに対して必須**。送らない item は新規作成の意思表示として扱い、既存レコードに当たったら **409**。
+  任意のままだと値を省略するだけでロックを迂回でき、更新の無言上書きと(空入力の場合は)レコード削除まで通ってしまう(**fail-closed**)
+- **照合と書き込みを分けない**。「SELECT して比較 → UPDATE / DELETE」の二段構えは、並行リクエストが両方とも照合を通過する
+  TOCTOU を残す。**`WHERE user_id = ? AND date = ? AND updated_at = ?` の条件付き書き込みを1文で実行し、
+  更新件数が0なら競合(409)**として扱う
+- **空入力による削除分岐も同じ条件付き書き込みで行う**(`updated_at` を条件から外さない)
+- 新規作成は `(userId, date)` 一意制約に委ね、**衝突を 409 に変換**する(先に SELECT して存在確認しない)
+- 一括リクエストは**単一トランザクション**で処理し、**1件でも競合したら全件ロールバック**する(部分適用を作らない)
 
 ## エラーハンドリング(neverthrow)
 
@@ -64,7 +75,7 @@
 
 - `GET /api/forecast?area={code}`: `area` 省略時は登録地域、指定時はマスタ照合の上その地域
 - `GET /api/coordinates?from&to`: **セッションのユーザーのコーデのみ**(`from <= to` / 最大366日 / 両方省略で直近30件)。写真があれば短命の署名付き GET URL を同梱
-- `PUT /api/coordinates`: 一括 upsert(`(userId, date)` 一意)。items 最大7件。ボディの **`snapshotId`(表示していた予報の世代)**が指すキャッシュから気温スナップショットを書き込む(決定事項 #30)。`snapshotId` が無い/失効時は既存の気温・由来を維持(#31)。各 item の `updatedAt` が DB と不一致なら 409(#32)
+- `PUT /api/coordinates`: 一括 upsert(`(userId, date)` 一意)。items 最大7件。ボディの **`snapshotId`(表示していた予報の世代)**が指すキャッシュから気温スナップショットを書き込む(決定事項 #30)。`snapshotId` が無い/失効時は既存の気温・由来を維持(#31)。**既存レコードへの書き込みは `updatedAt` を必須とし、不一致・省略のいずれも 409**(#32。下記「楽観ロック」参照)
 - `DELETE /api/coordinates/:date`: **セッションのユーザーのレコードのみ**を対象にする。写真があればストレージのオブジェクトも削除
 - `POST /api/uploads`: presign → ブラウザ直接 PUT → `PUT /api/coordinates` の `imageKey` で確定の3ステップ。画像を API サーバーに通さない(サムネイル生成もしない)。孤児オブジェクトは許容
 - `GET /api/doc` / `GET /api/openapi.json`: Swagger UI と OpenAPI 定義(認証不要)

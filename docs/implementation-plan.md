@@ -4,7 +4,7 @@
 
 - 作成日: 2026-07-20
 - 更新: 2026-08-03(設計レビュー反映: 最小履歴フェーズ(6c)と公開前ゲート(フェーズ8)を追加。気温スナップショットのテスト要件を明記)
-- 更新: 2026-08-18(フェーズ6a のテスト要件に所有権(認可)のケースを追加。決定事項 #33)
+- 更新: 2026-08-18(フェーズ6a のテスト要件に所有権(認可)のケースを追加(決定事項 #33)。併せて楽観ロックを fail-closed 化し、条件付き書き込み・省略/並行更新のテストを追加(決定事項 #32))
 - 更新: 2026-08-07(フェーズ1のスコープを改定: ツールチェーンが実際に機能することを確認するため、疎通の骨格スタブとそのテストを含める。従来の「機能コードを一切含めない」から変更)
 - スコープ: Must 機能(初回リリース)まで。**最小履歴(`/history` 直近30件)は Must へ昇格したため本プランに含む**(フェーズ6c)。その他の Should 機能(履歴の拡張・設定・削除・天気アイコン・写真アップロード)は本プランの対象外(後続で順次追加)
 - 要件は [specification.md](./specification.md)、技術設計は [architecture.md](./architecture.md) を参照
@@ -56,7 +56,7 @@
 全機能から参照される共有パッケージのため、垂直分割より先に確定させる。
 
 - 地域マスタ: `master-data/areas.ts` を `packages/schema/src/areas.ts` へ**移植(再生成しない)**。`Area` 型・`findArea(code)`・`forecastCode` 解決ヘルパーを追加
-- Zod スキーマ: signup(ユーザー名 trim 後1〜20文字・文字種制限なし / メール形式 / パスワード8〜20文字・小文字英字+数字 / areaCode マスタ実在)、login、coordinates upsert(**`snapshotId`(任意)** + `items` **最大7件**、date は `YYYY-MM-DD` かつ**実在する暦日・今日から前後1年以内**、**リクエスト内の日付重複は不正**、各項目は trim 後最大50文字、`updatedAt`(任意))。エラーメッセージは日本語
+- Zod スキーマ: signup(ユーザー名 trim 後1〜20文字・文字種制限なし / メール形式 / パスワード8〜20文字・小文字英字+数字 / areaCode マスタ実在)、login、coordinates upsert(**`snapshotId`(任意)** + `items` **最大7件**、date は `YYYY-MM-DD` かつ**実在する暦日・今日から前後1年以内**、**リクエスト内の日付重複は不正**、各項目は trim 後最大50文字、`updatedAt`(**既存レコードでは必須・新規作成時のみ省略可**。決定事項 #32))。エラーメッセージは日本語
 - 日付ユーティリティ(JST 固定): `todayJst()` / `YYYY-MM-DD` 検証(**実在する暦日であることを含む**)/ `YYYY年M月D日` 整形。`new Date()` からのローカル日付切り出しを書かない
 - 気温整形(`℃` 表示)
 - Vitest: スキーマ境界値・マスタのコード一意性/形式・日付ユーティリティ(TZ=UTC でも JST 判定が正しいこと)
@@ -140,13 +140,16 @@ DB スキーマも全機能の土台となるため先に確定させる。
 **`features/coordinate/`(domain → infrastructure → application → presentation)**
 
 - `domain/`: `Coordinate` 型、`(userId, date)` 一意・**items 最大7件**・**リクエスト内の日付重複禁止**・**実在する暦日**・**保存可能範囲(今日から前後1年)**などのビジネスルールを表現するバリデーション、気温スナップショットの決定ロジック(`Forecast` と対象日から max/min と由来(`areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`)を引く純粋関数。予報範囲外の日付は null + `'unavailable'`)、**3項目が trim 後すべて空なら「削除」と判定する**ロジック
-- `infrastructure/`: Drizzle 経由の CRUD アダプタ。`PUT /api/coordinates` の一括 upsert は単一トランザクションで実装し、途中の DB エラーは全件ロールバックする。**`updatedAt` の照合(楽観ロック)もこのトランザクション内で行う**(決定事項 #32)。**`ResultAsync<T, DbError>` を生成するのはこの層のみ**(消費は application)
+- `infrastructure/`: Drizzle 経由の CRUD アダプタ。`PUT /api/coordinates` の一括 upsert は単一トランザクションで実装し、途中の DB エラーは全件ロールバックする。**`updatedAt` の照合(楽観ロック)もこのトランザクション内で行う**(決定事項 #32)。照合は「SELECT で比較 → UPDATE / DELETE」の二段構えにせず、**`WHERE user_id = ? AND date = ? AND updated_at = ?` の条件付き書き込みを1文で実行し、更新件数0を競合(409)として扱う**(並行リクエストが両方とも事前照合を通過する TOCTOU を避けるため)。新規作成は `(userId, date)` 一意制約の衝突を 409 に変換する。**空入力による削除分岐も同じ条件付き書き込みで行う**。**`ResultAsync<T, DbError>` を生成するのはこの層のみ**(消費は application)
 - `application/`: `listCoordinates` / `upsertCoordinates` / `deleteCoordinate` ユースケース。`upsertCoordinates` は `features/forecast` の `application`(`getForecastBySnapshotId`)を呼び出して**リクエストの `snapshotId`(表示に使われた予報世代。決定事項 #30)**から対象日の気温スナップショットを解決してから infrastructure へ渡す。**`snapshotId` が無い/失効している場合は既存レコードの気温・由来をそのまま維持する**(決定事項 #31。過去日の文言修正で気温を失わない)。予報取得失敗時も null で保存を継続する。infrastructure から返る Result はここで処理し、失敗時は型付きアプリケーションエラー(例: `CoordinateSaveError`)を throw する
 - `presentation/`: `GET /api/coordinates?from&to`(`from <= to` / 最大366日 / 両方省略で直近30件)/ `PUT /api/coordinates` / `DELETE /api/coordinates/:date` を `createRoute` で定義し `/api/doc` に自動反映。**気温スナップショットはクライアントから受け取らない**。throw されたエラーを 400/401/**409**/500 へ変換
 - Vitest: `domain` のバリデーション(一意制約表現・items 上限・日付重複・暦日・範囲・全空判定)・`infrastructure` のトランザクション動作(部分失敗時の全件ロールバック)・`application` の気温スナップショット解決ロジック。**以下は仕様を固定するテストとして必ず書く**(決定事項 #31 / #32):
   - `snapshotId` なしで既存レコードを更新したとき、保存済みの気温・`areaCode`・`forecastIssuedAt` が維持されること
   - 予報範囲外の日付を新規作成したとき、気温が null かつ `snapshotStatus: 'unavailable'` になること
   - `updatedAt` が DB と不一致の item を含む保存が 409 になり、**同一リクエスト内の他の item も適用されない**こと
+  - **既存レコードに対して `updatedAt` を省略した保存が 409 になること**(fail-closed。任意扱いのままだと値を送らないだけでロックを迂回でき、無言の上書きと空入力時のレコード削除が通る)
+  - **同一レコードへの並行保存で、後着の1本が 409 になること**(条件付き書き込みの更新件数0を競合として扱えているか。事前照合と書き込みを分けた実装では両方通過する)
+  - **空入力による削除分岐でも `updatedAt` が照合され、不一致・省略なら削除されずに 409 になること**
   - **`PUT /api/coordinates` の空入力による削除分岐が、他ユーザーのレコードを消さないこと**(他ユーザーだけが対象日付のレコードを持つ状態で全項目が空の item を送っても、そのレコードが残る)。削除分岐を `WHERE date = ?` だけで引く実装を検出する。**削除エンドポイント(Should)とは別に、PUT 内の削除分岐は Must の対象**であるため本フェーズで固定する
   - **他ユーザーのレコードを取得・更新できないこと**(RLS を持たないため、この保証はテストが担う。決定事項 #33)。`GET /api/coordinates` に他ユーザーのレコードが混ざらないこと / `PUT /api/coordinates` で他人の同一日付レコードを書き換えられないこと、をそれぞれ固定する。**`DELETE /api/coordinates/:date` の所有権テストは、削除機能(Should)に着手する時点で同様に追加する**(削除は本プランの対象外)
 
@@ -154,7 +157,7 @@ DB スキーマも全機能の土台となるため先に確定させる。
 
 - `/forecast` 画面のコーデ入力部(アウター/トップス/ボトムス)を予報表示部と統合し、保存済みデータの表示・編集に対応
 - 保存時に**表示中の予報の `snapshotId` を送る**(地域切替セレクタで選んだ地域の予報から得たもの。決定事項 #30)。`coordinate → forecast` の参照は許可された唯一の feature 間依存
-- 各行に読み込み時の `updatedAt` を保持して送り、**409 を受けたら再読み込みを促すトーストを出す**(決定事項 #32)
+- 各行に読み込み時の `updatedAt` を保持して**必ず送る**(既存レコードで省略するとサーバー側で 409 になる)。**409 を受けたら再読み込みを促すトーストを出す**(決定事項 #32)
 - **未保存の変更がある状態での画面離脱に警告を出す**(1画面で1週間分を扱う構造上、離脱で入力が失われるため)
 - 予報が取得できない場合でも入力・保存を継続できることを実際に確認する(スナップショット null)
 - Vitest(Testing Library): 各項目の文字数バリデーション表示、予報取得失敗時でも保存操作が可能なこと、保存済みデータの編集反映、409 時の再読み込み案内
