@@ -71,7 +71,7 @@ printf '%s' "$scan" | grep -Eqi '(^|[[:space:]])effect([[:space:]]|@|$)' \
 # --- 導入先が誤っているケース ----------------------------------------------
 if printf '%s' "$scan" | grep -Eq '@haregi/web'; then
   printf '%s' "$scan" | grep -Eqi '(^|[[:space:]])neverthrow' \
-    && deny 'apps/web への neverthrow' 'neverthrow は apps/api の infrastructure 層のみ(決定事項 #19 / #26)'
+    && deny 'apps/web への neverthrow' 'neverthrow は apps/api のみ(生成は infrastructure・消費は application。決定事項 #19 / #26)'
   printf '%s' "$scan" | grep -Eqi '(^|[[:space:]])pino' \
     && deny 'apps/web への pino' 'pino は apps/api のみ(決定事項 #24)'
 fi

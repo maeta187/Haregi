@@ -17,7 +17,7 @@
 ## リポジトリ構成(計画)
 
 - `apps/web`: TanStack Start + React 19 + Tailwind v4 + shadcn/ui。API 呼び出しは Hono RPC(`hc<AppType>`)+ TanStack Query。**機能優先スライス**(`routes/` / `features/*/{components,hooks,api,model}`。決定事項 #28)
-- `apps/api`: Hono + Better Auth + neverthrow。**軽量オニオン・機能優先**(`features/*/{domain,application,infrastructure,presentation}` + `shared/`。決定事項 #26)。neverthrow は api の infrastructure 層のみ(web には導入しない)
+- `apps/api`: Hono + Better Auth + neverthrow。**軽量オニオン・機能優先**(`features/*/{domain,application,infrastructure,presentation}` + `shared/`。決定事項 #26)。neverthrow は `apps/api` のみ(web には導入しない)。**生成は infrastructure・消費は application**、domain は型注釈のみ、presentation は使用しない
 - `packages/db`: Drizzle スキーマ(認証テーブルは Better Auth CLI 生成がベース)
 - `packages/schema`: Zod スキーマ・地域マスタ・日付/気温ユーティリティ(フロント/バックで共有)
 - `master-data/`: 生成・検証済みの気象庁地域マスタ。`areas.ts` は packages/schema へ、`validate-areas.mjs` は `apps/api/scripts/validate-areas.ts` へ移植する(再生成せずこれを使う)
