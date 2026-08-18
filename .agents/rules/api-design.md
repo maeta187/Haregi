@@ -16,6 +16,27 @@
 - **shared/**: `logger.ts`(pino)/ `openapi.ts`(OpenAPIHono + Swagger UI)/ `http-errors.ts`。全 feature から参照してよい
 - DDD 戦術パターン(Entity / Value Object / 集約 / ドメインイベント)は導入しない
 
+## 認可(所有権チェック)の実施場所
+
+**DB に RLS は導入しない**(BaaS 不採用・DB への接続経路が `apps/api` の単一ロールのみのため、RLS を入れても結局アプリ側で利用者を渡す必要があり実質の防御が変わらない)。代わりに以下をサーバー側ロジックで必ず担保する。
+
+- **`userId` はセッション(`c.get('user')`)からのみ得る**。リクエストボディ・クエリ・パスパラメータの `userId` は一切信用しない(そもそもスキーマに持たせない)
+- **所有者条件は `infrastructure` 層の repository の内側に閉じ込める**。`domain` の Repository インターフェースは `userId` を必須引数に取る形で定義し、**それを省略できるメソッドを生やさない**(呼び出し側の付け忘れを型で潰す)
+
+  ```ts
+  // features/coordinate/domain/coordinate-repository.ts
+  export interface CoordinateRepository {
+    listByUser(userId: string, range?: DateRange): ResultAsync<Coordinate[], DbError>
+    upsertForUser(userId: string, items: CoordinateInput[]): ResultAsync<Coordinate[], DbError>
+    deleteForUser(userId: string, date: string): ResultAsync<void, DbError>
+  }
+  ```
+
+- **更新・削除系は `WHERE id = ?` だけで引かず、必ず `AND user_id = ?` を併記する**(IDOR の典型的な穴)。`PUT /api/coordinates` は `(userId, date)` 一意の upsert、`DELETE /api/coordinates/:date` も `userId` を条件に含める
+- **他人のリソースを指定された場合と存在しない場合を区別しない**。403 ではなく **404(または該当0件)で統一**する(403 を返すと ID の存在自体が漏れる)
+- 写真(Should)は DB の外にあり同じ仕組みで守れないため、`imageKey` のプレフィックス(`coordinates/{userId}/`)がリクエスト元ユーザーと一致することを `PUT /api/coordinates` で検証する(architecture.md §8)
+- **この保証を担保するのはテスト**(RLS という DB 側の網がない以上、代替はテストしかない)。必須ケースは `testing.md` を参照
+
 ## エラーハンドリング(neverthrow)
 
 - 外部 I/O(気象庁 JSON 取得・Drizzle・S3)は `infrastructure` 層で `ResultAsync` でラップし、型付きエラー(`FetchError | ParseError | UnknownAreaError | DbError` 等)で返す
@@ -30,9 +51,9 @@
 ## エンドポイント仕様(architecture.md §5 に従う)
 
 - `GET /api/forecast?area={code}`: `area` 省略時は登録地域、指定時はマスタ照合の上その地域
-- `GET /api/coordinates?from&to`: 自分のコーデのみ。写真があれば短命の署名付き GET URL を同梱
-- `PUT /api/coordinates`: 一括 upsert(`(userId, date)` 一意)。items 最大7件。ボディの `areaCode`(表示中の地域)をマスタ照合し、その地域の予報から気温スナップショットを書き込む(決定事項 #29)
-- `DELETE /api/coordinates/:date`: 写真があればストレージのオブジェクトも削除
+- `GET /api/coordinates?from&to`: **セッションのユーザーのコーデのみ**(`from <= to` / 最大366日 / 両方省略で直近30件)。写真があれば短命の署名付き GET URL を同梱
+- `PUT /api/coordinates`: 一括 upsert(`(userId, date)` 一意)。items 最大7件。ボディの **`snapshotId`(表示していた予報の世代)**が指すキャッシュから気温スナップショットを書き込む(決定事項 #30)。`snapshotId` が無い/失効時は既存の気温・由来を維持(#31)。各 item の `updatedAt` が DB と不一致なら 409(#32)
+- `DELETE /api/coordinates/:date`: **セッションのユーザーのレコードのみ**を対象にする。写真があればストレージのオブジェクトも削除
 - `POST /api/uploads`: presign → ブラウザ直接 PUT → `PUT /api/coordinates` の `imageKey` で確定の3ステップ。画像を API サーバーに通さない(サムネイル生成もしない)。孤児オブジェクトは許容
 - `GET /api/doc` / `GET /api/openapi.json`: Swagger UI と OpenAPI 定義(認証不要)
 
