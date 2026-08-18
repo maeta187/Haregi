@@ -30,6 +30,7 @@
 - UI コンポーネントは shadcn/ui を第一候補とする(取り込み先: `src/components/ui`)
 - フォームは React Hook Form + `@hookform/resolvers`(Zod)+ shadcn/ui の Form パターンで統一
 - 通知はトースト(sonner)。`routes/__root.tsx` に1箇所だけマウントし、`hooks/` の mutation 成否から呼ぶ
+- **保存時の 409 は2種類あり、案内を分ける**。`version` 競合(決定事項 #32)は「再読み込みして編集し直す」、`snapshotId` の失効(決定事項 #35)は「予報を取り直して同じ入力のまま再送する」。後者は入力中のコーデを保持したまま予報を再取得し、新しい `snapshotId` で再送する
 - ナビはログイン状態で出し分ける(`features/auth/hooks/` のセッションフックを root レイアウトが参照し、ナビ自体は props でログイン状態を受ける純粋コンポーネント)。モバイルはドロワーナビ(shadcn/ui の Sheet)
 - コーデ写真(Should)の**サムネイルは生成しない**。原寸の署名付き URL を CSS で縮小表示する(architecture.md §8)
 - 認証は `better-auth/react` の `createAuthClient` + `inferAdditionalFields`(`areaCode` を型付け)を使う
