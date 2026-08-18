@@ -9,10 +9,10 @@
 
 `src/features/{auth,forecast,coordinate}/{domain,application,infrastructure,presentation}` + `src/shared/`。依存方向は `presentation → application → domain` で、`infrastructure` は domain のインターフェースを実装する(依存はドメインへ向く)。
 
-- **domain**: 型・純粋関数のみ。Hono / Drizzle / fetch に依存しない。Repository のインターフェースもここ。**neverthrow は値として使わない**が、Repository ポートの戻り値型としての型のみの依存(`import type { ResultAsync }`)は許容する(実装は infrastructure が持つ)
-- **application**: ユースケース。**neverthrow を公開シグネチャに出さない**。infrastructure の `ResultAsync` は `.match()` 等で内部処理し、失敗時は型付きアプリケーションエラー(`ForecastUnavailableError` 等)を throw する
-- **infrastructure**: 外部 I/O のアダプタ(気象庁・Drizzle・Better Auth・S3)。neverthrow を**値として使うのはこの層のみ**(domain は Repository ポートの戻り値型として `import type { ResultAsync }` を書けるが、`ok()` / `err()` / `.match()` 等の値・関数を使わない)
-- **presentation**: Hono ルート + `@hono/zod-openapi` の `createRoute`。throw されたエラーを `shared/http-errors.ts` で HTTP ステータスへ変換する
+- **domain**: 型・純粋関数のみ。Hono / Drizzle / fetch に依存しない。Repository のインターフェースもここ。**neverthrow の値には触れない**(生成も消費もしない)。Repository ポートの戻り値型としての型のみの依存(`import type { ResultAsync }`)だけを許容する
+- **application**: ユースケース。infrastructure から受け取った `ResultAsync` を `.match()` 等で**消費する層**(消費はここまで)。ただし **`ResultAsync` を自ら生成せず、公開シグネチャにも出さない**。失敗時は型付きアプリケーションエラー(`ForecastUnavailableError` 等)を throw する
+- **infrastructure**: 外部 I/O のアダプタ(気象庁・Drizzle・Better Auth・S3)。**`ResultAsync` を生成する唯一の層**(`ok()` / `err()` / `fromPromise` / `fromSafePromise` を書くのはここだけ)
+- **presentation**: Hono ルート + `@hono/zod-openapi` の `createRoute`。**neverthrow には触れない**。throw されたエラーを `shared/http-errors.ts` で HTTP ステータスへ変換する
 - **shared/**: `logger.ts`(pino)/ `openapi.ts`(OpenAPIHono + Swagger UI)/ `http-errors.ts`。全 feature から参照してよい
 - DDD 戦術パターン(Entity / Value Object / 集約 / ドメインイベント)は導入しない
 
@@ -35,11 +35,21 @@
   ```
 
 - **更新・削除系は `WHERE id = ?` だけで引かず、必ず `AND user_id = ?` を併記する**(IDOR の典型的な穴)。`PUT /api/coordinates` は `(userId, date)` 一意の upsert、`DELETE /api/coordinates/:date` も `userId` を条件に含める
+- **`PUT /api/coordinates` の空入力による削除分岐も同じ扱い**。3項目が trim 後すべて空の item はその日付のレコード削除に分岐する(`validation.md`)ため、**`WHERE date = ?` ではなく `WHERE user_id = ? AND date = ?` で引く**。削除分岐は upsert と**同一トランザクション**内で行い、同じリクエスト内の他 item と原子性を共有する
 - **他人のリソースを指定された場合と存在しない場合を区別しない**。403 ではなく **404(または該当0件)で統一**する(403 を返すと ID の存在自体が漏れる)
 - 写真(Should)は DB の外にあり同じ仕組みで守れないため、`imageKey` のプレフィックス(`coordinates/{userId}/`)がリクエスト元ユーザーと一致することを `PUT /api/coordinates` で検証する(architecture.md §8)
 - **この保証を担保するのはテスト**(RLS という DB 側の網がない以上、代替はテストしかない)。必須ケースは `testing.md` を参照
 
 ## エラーハンドリング(neverthrow)
+
+**層境界は「生成 = infrastructure / 消費 = application」の一方向で一意に定める**。
+
+| 層 | neverthrow の扱い |
+| --- | --- |
+| domain | 触れない。Repository ポートの**型注釈のみ**(`import type { ResultAsync }`) |
+| infrastructure | **生成する唯一の層**(`ok()` / `err()` / `fromPromise`) |
+| application | **消費する層**(`.match()` 等)。生成しない・公開シグネチャに出さない |
+| presentation | 触れない(application が throw した型付きエラーだけを受ける) |
 
 - 外部 I/O(気象庁 JSON 取得・Drizzle・S3)は `infrastructure` 層で `ResultAsync` でラップし、型付きエラー(`FetchError | ParseError | UnknownAreaError | DbError` 等)で返す
 - `presentation` 層で HTTP ステータス(400 / 401 / 502 等)へ**網羅的に**マッピングし、例外を Hono フレームワーク層に漏らさない

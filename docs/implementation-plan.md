@@ -116,7 +116,7 @@ DB スキーマも全機能の土台となるため先に確定させる。
 **`features/forecast/`(domain → infrastructure → application → presentation)**
 
 - `domain/`: `Forecast` 型と、`[短期, 週間]` の2要素配列を `weatherArea` / `weeklyArea` / `tempStation` / `forecastCode` で解決して正規化する**純粋関数**(外部依存なし)。週間は翌日始まりのため当日気温を短期から補完、`""` 欠損は null 化するロジックもここに置く
-- `infrastructure/`: 気象庁 JSON 取得(`AbortSignal.timeout` + **指数バックオフ + ジッターのリトライ**)と地域コード単位のインメモリキャッシュ(30〜60分)を実装するアダプタ。domain の正規化関数を呼び出し、**neverthrow(`ResultAsync<Forecast, FetchError | ParseError | UnknownAreaError>`)はこの層のみで使用**。キャッシュは以下を満たす(決定事項 #30、architecture.md「キャッシュ・障害時挙動」):
+- `infrastructure/`: 気象庁 JSON 取得(`AbortSignal.timeout` + **指数バックオフ + ジッターのリトライ**)と地域コード単位のインメモリキャッシュ(30〜60分)を実装するアダプタ。domain の正規化関数を呼び出し、**`ResultAsync<Forecast, FetchError | ParseError | UnknownAreaError>` を生成するのはこの層のみ**(消費は application)。キャッシュは以下を満たす(決定事項 #30、architecture.md「キャッシュ・障害時挙動」):
   - エントリごとに**世代 ID(`snapshotId`)**を持ち、`snapshotId` から同一世代を引き当てられる(TTL 切れ後も一定期間は保持する)
   - 再取得に失敗しても**最後に成功した予報を破棄せず** `status: 'stale'` として返す(last-known-good)
   - 同一地域への**並行取得を1本の fetch に束ねる**(in-flight 共有)
@@ -140,13 +140,14 @@ DB スキーマも全機能の土台となるため先に確定させる。
 **`features/coordinate/`(domain → infrastructure → application → presentation)**
 
 - `domain/`: `Coordinate` 型、`(userId, date)` 一意・**items 最大7件**・**リクエスト内の日付重複禁止**・**実在する暦日**・**保存可能範囲(今日から前後1年)**などのビジネスルールを表現するバリデーション、気温スナップショットの決定ロジック(`Forecast` と対象日から max/min と由来(`areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`)を引く純粋関数。予報範囲外の日付は null + `'unavailable'`)、**3項目が trim 後すべて空なら「削除」と判定する**ロジック
-- `infrastructure/`: Drizzle 経由の CRUD アダプタ。`PUT /api/coordinates` の一括 upsert は単一トランザクションで実装し、途中の DB エラーは全件ロールバックする。**`updatedAt` の照合(楽観ロック)もこのトランザクション内で行う**(決定事項 #32)。**neverthrow(`ResultAsync<T, DbError>`)はこの層のみで使用**
+- `infrastructure/`: Drizzle 経由の CRUD アダプタ。`PUT /api/coordinates` の一括 upsert は単一トランザクションで実装し、途中の DB エラーは全件ロールバックする。**`updatedAt` の照合(楽観ロック)もこのトランザクション内で行う**(決定事項 #32)。**`ResultAsync<T, DbError>` を生成するのはこの層のみ**(消費は application)
 - `application/`: `listCoordinates` / `upsertCoordinates` / `deleteCoordinate` ユースケース。`upsertCoordinates` は `features/forecast` の `application`(`getForecastBySnapshotId`)を呼び出して**リクエストの `snapshotId`(表示に使われた予報世代。決定事項 #30)**から対象日の気温スナップショットを解決してから infrastructure へ渡す。**`snapshotId` が無い/失効している場合は既存レコードの気温・由来をそのまま維持する**(決定事項 #31。過去日の文言修正で気温を失わない)。予報取得失敗時も null で保存を継続する。infrastructure から返る Result はここで処理し、失敗時は型付きアプリケーションエラー(例: `CoordinateSaveError`)を throw する
 - `presentation/`: `GET /api/coordinates?from&to`(`from <= to` / 最大366日 / 両方省略で直近30件)/ `PUT /api/coordinates` / `DELETE /api/coordinates/:date` を `createRoute` で定義し `/api/doc` に自動反映。**気温スナップショットはクライアントから受け取らない**。throw されたエラーを 400/401/**409**/500 へ変換
 - Vitest: `domain` のバリデーション(一意制約表現・items 上限・日付重複・暦日・範囲・全空判定)・`infrastructure` のトランザクション動作(部分失敗時の全件ロールバック)・`application` の気温スナップショット解決ロジック。**以下は仕様を固定するテストとして必ず書く**(決定事項 #31 / #32):
   - `snapshotId` なしで既存レコードを更新したとき、保存済みの気温・`areaCode`・`forecastIssuedAt` が維持されること
   - 予報範囲外の日付を新規作成したとき、気温が null かつ `snapshotStatus: 'unavailable'` になること
   - `updatedAt` が DB と不一致の item を含む保存が 409 になり、**同一リクエスト内の他の item も適用されない**こと
+  - **`PUT /api/coordinates` の空入力による削除分岐が、他ユーザーのレコードを消さないこと**(他ユーザーだけが対象日付のレコードを持つ状態で全項目が空の item を送っても、そのレコードが残る)。削除分岐を `WHERE date = ?` だけで引く実装を検出する。**削除エンドポイント(Should)とは別に、PUT 内の削除分岐は Must の対象**であるため本フェーズで固定する
   - **他ユーザーのレコードを取得・更新できないこと**(RLS を持たないため、この保証はテストが担う。決定事項 #33)。`GET /api/coordinates` に他ユーザーのレコードが混ざらないこと / `PUT /api/coordinates` で他人の同一日付レコードを書き換えられないこと、をそれぞれ固定する。**`DELETE /api/coordinates/:date` の所有権テストは、削除機能(Should)に着手する時点で同様に追加する**(削除は本プランの対象外)
 
 ### 6b. apps/web
