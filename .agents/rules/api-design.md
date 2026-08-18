@@ -9,9 +9,9 @@
 
 `src/features/{auth,forecast,coordinate}/{domain,application,infrastructure,presentation}` + `src/shared/`。依存方向は `presentation → application → domain` で、`infrastructure` は domain のインターフェースを実装する(依存はドメインへ向く)。
 
-- **domain**: 型・純粋関数のみ。Hono / Drizzle / fetch / neverthrow に依存しない。Repository のインターフェースもここ
+- **domain**: 型・純粋関数のみ。Hono / Drizzle / fetch に依存しない。Repository のインターフェースもここ。**neverthrow は値として使わない**が、Repository ポートの戻り値型としての型のみの依存(`import type { ResultAsync }`)は許容する(実装は infrastructure が持つ)
 - **application**: ユースケース。**neverthrow を公開シグネチャに出さない**。infrastructure の `ResultAsync` は `.match()` 等で内部処理し、失敗時は型付きアプリケーションエラー(`ForecastUnavailableError` 等)を throw する
-- **infrastructure**: 外部 I/O のアダプタ(気象庁・Drizzle・Better Auth・S3)。**neverthrow はこの層のみ**
+- **infrastructure**: 外部 I/O のアダプタ(気象庁・Drizzle・Better Auth・S3)。neverthrow を**値として使うのはこの層のみ**(domain は Repository ポートの戻り値型として `import type { ResultAsync }` を書けるが、`ok()` / `err()` / `.match()` 等の値・関数を使わない)
 - **presentation**: Hono ルート + `@hono/zod-openapi` の `createRoute`。throw されたエラーを `shared/http-errors.ts` で HTTP ステータスへ変換する
 - **shared/**: `logger.ts`(pino)/ `openapi.ts`(OpenAPIHono + Swagger UI)/ `http-errors.ts`。全 feature から参照してよい
 - DDD 戦術パターン(Entity / Value Object / 集約 / ドメインイベント)は導入しない
@@ -25,6 +25,8 @@
 
   ```ts
   // features/coordinate/domain/coordinate-repository.ts
+  import type { ResultAsync } from 'neverthrow' // 型のみの依存(値は使わない)
+
   export interface CoordinateRepository {
     listByUser(userId: string, range?: DateRange): ResultAsync<Coordinate[], DbError>
     upsertForUser(userId: string, items: CoordinateInput[]): ResultAsync<Coordinate[], DbError>
