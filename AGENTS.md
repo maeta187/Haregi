@@ -30,18 +30,51 @@
 - `pnpm lint` / `pnpm format`: oxlint / oxfmt(ESLint・Prettier は使わない)
 - `pnpm typecheck` / `pnpm test`: tsc / Vitest
 
-## エージェント設定(ルール・スキル)
+## エージェント設定(ルール・スキル・hooks)
 
 **正(ソース・オブ・トゥルース)は `.agents/` 側**。ツール非依存の共通配置であり、Codex はここを直接読む。Claude Code は `.claude/` しか探索しないため、同期スクリプトでコピーする。
 
 ```
 .agents/rules/   → .claude/rules/haregi/   (git 管理: .agents 側のみ)
 .agents/skills/  → .claude/skills/         (git 管理: skills-lock.json のみ)
+.agents/hooks/   → コピーしない(設定から直接パスを参照。git 管理する)
 ```
 
 - 同期: **`./scripts/sync-agent-config.sh`**(`--dry-run` で確認のみ)。`.agents/` 側を編集したら実行する
 - **`.claude/` 配下のコピーは生成物**。gitignore 済みで、直接編集しても次回の同期で失われる。変更は必ず `.agents/` 側に加える
 - スキル本体はコミットしない。クローン後は `skills-lock.json` を元に各自のローカルへ復元してから同期する
+- **hooks は同期の対象外**。rules / skills と違い `.claude/` 配下にある必要がなく、設定ファイル側から `.agents/hooks/` のパスを直接呼べるため(スクリプト本体はツール非依存で、Codex からも同じものを参照できる)
+
+### hooks
+
+スクリプトの正は `.agents/hooks/`。Claude Code (`.claude/settings.json`)と Codex (`.codex/hooks.json`)の両方から**同じスクリプトを直接参照**する(設定ファイルの形式だけが違う)。`matcher` は両ツールとも正規表現で、ツール名 `Bash` は共通、Codex の `apply_patch` は `Write` / `Edit` をエイリアスとして受け付けるため、同じ書き方が通る。
+
+| スクリプト | イベント | 役割 |
+| --- | --- | --- |
+| `verify-changes.sh` | Stop / SubagentStop | `.agents/` → `.claude/` の同期 + **変更ファイルの検証**(下記) |
+| `guard-file-edits.sh` | PreToolUse (Write/Edit) | `.claude/rules/haregi/` `.claude/skills/`(生成物)と `.github/workflows/`(非スコープ)への書き込みを拒否 |
+| `guard-stack.sh` | PreToolUse (Bash) | 確定スタックから逸脱する依存の追加を拒否(ESLint / Prettier / Husky / Storybook / Supabase / E2E / Jest / 状態管理ライブラリ、`apps/web` への neverthrow・pino) |
+| `notify.sh` | Notification / Stop | macOS の通知センターに承認待ち・完了を出す(Codex は Notification イベントを持たないため Stop のみ) |
+
+- **guard 系の判定には `jq` が必要**。無い環境では拒否が効かず素通しする(作業は止めない)
+- `notify.sh` は macOS 以外では何もしない
+
+#### 検証 hooks(実装完了時の自動チェック)
+
+エージェントが応答を終えようとしたタイミングで、**変更されたファイルだけ**を対象に検証する。
+
+| 段階 | 内容 | 対象 |
+| --- | --- | --- |
+| format | `oxfmt --write`(**自動整形**) | 変更された `.ts/.tsx/.js/.jsx/.json` |
+| lint | `oxlint` | 同上(json を除く) |
+| typecheck | `turbo run typecheck --filter=...` | 変更が及ぶワークスペースのみ |
+| test | `turbo run test --filter=...` | 同上 |
+
+- 失敗すると **exit 2** でエージェントに差し戻され、修正 → 再検証を繰り返す。**同一セッションで3回連続失敗したら打ち切り**、手動確認を促すメッセージを出す(環境起因のエラーで無限ループしないため)
+- ルート直下の設定(`turbo.json` / `tsconfig.base.json` / `oxlint.config.ts` 等)が変わった場合のみ、絞り込まず全ワークスペースを検査する
+- 検査対象の拡張子を含まない変更(ドキュメントのみ等)では、`.agents/` の同期だけ行って即座に終了する(**`sync-agent-config.sh` は毎回走るため手動実行は不要**)
+- 単体で試す: `echo '{"session_id":"manual"}' | ./.agents/hooks/verify-changes.sh; echo "exit=$?"`
+- Codex ではプロジェクトを信頼したうえで、初回または hook 変更後に `/hooks` から定義を確認・承認する
 
 ### MCP サーバー
 
