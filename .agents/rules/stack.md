@@ -9,7 +9,7 @@
 - DB: PostgreSQL(Docker Compose)+ Drizzle ORM + drizzle-kit
 - バリデーション: Zod(`packages/schema` でフロント/バック共有)
 - API 型共有: Hono RPC(`hc<AppType>`)+ データ取得は TanStack Query。フォームは React Hook Form + `@hookform/resolvers`
-- エラーハンドリング: neverthrow は **`apps/api` の `infrastructure` 層のみ**。`apps/web` には導入しない
+- エラーハンドリング: neverthrow は `apps/api` のみ。**生成は `infrastructure` 層・消費は `application` 層**(domain は Repository ポートの型注釈としてのみ参照可、presentation は触れない)。`apps/web` には導入しない
 - ロギング: pino(**`apps/api` のみ**。構造化ログ)
 - API ドキュメント: `@hono/zod-openapi` + `@hono/swagger-ui`(`/api/doc`)。手動の仕様書を作らない
 - Lint/Format: **oxlint + oxfmt のみ。ESLint・Prettier・prettier-plugin-tailwindcss を追加しない**(oxfmt が Tailwind クラスソート内蔵)

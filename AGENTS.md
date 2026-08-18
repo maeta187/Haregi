@@ -17,7 +17,7 @@
 ## リポジトリ構成(計画)
 
 - `apps/web`: TanStack Start + React 19 + Tailwind v4 + shadcn/ui。API 呼び出しは Hono RPC(`hc<AppType>`)+ TanStack Query。**機能優先スライス**(`routes/` / `features/*/{components,hooks,api,model}`。決定事項 #28)
-- `apps/api`: Hono + Better Auth + neverthrow。**軽量オニオン・機能優先**(`features/*/{domain,application,infrastructure,presentation}` + `shared/`。決定事項 #26)。neverthrow は api の infrastructure 層のみ(web には導入しない)
+- `apps/api`: Hono + Better Auth + neverthrow。**軽量オニオン・機能優先**(`features/*/{domain,application,infrastructure,presentation}` + `shared/`。決定事項 #26)。neverthrow は `apps/api` のみ(web には導入しない)。**生成は infrastructure・消費は application**、domain は型注釈のみ、presentation は使用しない
 - `packages/db`: Drizzle スキーマ(認証テーブルは Better Auth CLI 生成がベース)
 - `packages/schema`: Zod スキーマ・地域マスタ・日付/気温ユーティリティ(フロント/バックで共有)
 - `master-data/`: 生成・検証済みの気象庁地域マスタ。`areas.ts` は packages/schema へ、`validate-areas.mjs` は `apps/api/scripts/validate-areas.ts` へ移植する(再生成せずこれを使う)
@@ -104,15 +104,15 @@
 - **全てのやりとりは日本語で行う**
 - **日付は JST 固定の `YYYY-MM-DD` 文字列**。`Date` オブジェクトを API・DB・コンポーネント境界越しに渡さない
 - **サーバー側バリデーション**: `/api/auth/*` は zValidator を通らないため、signup / updateUser / changePassword の入力検証は Better Auth の `hooks.before` で行う(フロントの Zod 検証は UX 用であり防御ではない)
-- コーデの気温スナップショット(`maxTemperature` / `minTemperature`)はサーバー側が**リクエストの `snapshotId`(画面に表示していた予報の世代)**が指すキャッシュから書き込む。気温値をクライアントから受け取らない(決定事項 #29 / #30)
-- **`snapshotId` が送られない保存では、既存の気温スナップショットを維持する**(過去日の文言修正で蓄積データを失わない。決定事項 #31)
-- コーデの一括保存は各 item の `updatedAt` で楽観ロックし、不一致は 409(決定事項 #32)
+- コーデの気温スナップショット(`maxTemperature` / `minTemperature`)はサーバー側が**リクエストの `snapshotId`(画面に表示していた予報の世代)**が指す**永続化された予報世代(`forecast_snapshot`。決定事項 #34)**から書き込む。気温値をクライアントから受け取らない(決定事項 #29 / #30)
+- **`snapshotId` が送られない保存では、既存の気温スナップショットを維持する**(過去日の文言修正で蓄積データを失わない。決定事項 #31)。ただし**送られたのに解決できない場合(保持期間24時間の超過・掃除済み)は 409** とし、黙って null / 既存維持で保存しない(決定事項 #35)
+- コーデの一括保存は各 item の **`version`(単調増加する整数)**で楽観ロックし、**不一致・省略とも 409**(決定事項 #32)。照合は `WHERE user_id = ? AND date = ? AND version = ?` の条件付き書き込みで行い、成功時は `version + 1` して返す。`updatedAt` はロックに使わない
 - 気象庁の予報は改変せず表示し、「出典: 気象庁ホームページ」を常時表示する(法的要件)
 - 依存パッケージの更新は **1パッケージずつ**(全レイヤーが新しいため切り分け可能に保つ)
 
 ## 注意事項
 
 - 気象庁 JSON は `[短期予報, 週間予報]` の2要素配列で、天気は区域単位・気温はアメダス地点単位とキーが異なる。週間予報は翌日始まり・空文字 `""` の欠損あり。奄美(460040)と十勝(014030)は自分の JSON を持たず親区分に同居する — 解決ロジックは地域マスタの `forecastCode` / `weatherArea` / `weeklyArea` / `tempStation` に集約済みで、取得・整形は api の `features/forecast/` 内に隔離する(正規化は `domain`、取得・キャッシュは `infrastructure`)
-- 予報キャッシュはインメモリ前提(Node 常駐プロセス)。サーバーレスへのデプロイを検討する際は要再設計(architecture.md 決定事項 #23)
+- 予報キャッシュ(気象庁への発信抑制。TTL 30〜60分)はインメモリ前提(Node 常駐プロセス)。サーバーレスへのデプロイを検討する際は要再設計(architecture.md 決定事項 #23)。**予報世代(`snapshotId`)は別扱いで、PostgreSQL の `forecast_snapshot` テーブルに永続化する**(プロセス再起動・複数インスタンスでも引き当てられるようにするため。決定事項 #34)
 - 予報取得失敗(502)でもコーデ入力・保存は継続できること(スナップショットは null)
 - テストユーザー: `admin@example.com` / `password123` / 地域 `130000`

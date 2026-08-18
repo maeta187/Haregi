@@ -5,6 +5,8 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 - 作成日: 2026-07-19([rebuildspec.md](./rebuildspec.md) からの分割。検討経緯・盲点レビューの記録はそちらを参照)
 - 更新: 2026-07-25(決定事項 #26〜#29 を追加。バックエンド/フロントエンドのレイヤー構成・TDD 方針・気温スナップショットの基準地域を明確化)
 - 更新: 2026-08-03(設計レビュー反映: 決定事項 #30〜#32 を追加。気温スナップショットの同一性保証(`snapshotId`)・編集時の維持ポリシー・一括 upsert の楽観ロック。併せてキャッシュの last-known-good / 束ね / バックオフ、Coordinate への由来カラム、写真の所有権・EXIF・孤児掃除を明文化)
+- 更新: 2026-08-18(決定事項 #32 を fail-closed 化(`updatedAt` の省略も 409・条件付き書き込みで TOCTOU 回避・成功時のトークン前進・空入力 item の no-op)。楽観ロックのトークンを `updatedAt` から単調増加する `version` 整数へ変更(時計の同値・逆行に依存しない保証)。決定事項 #33 を追加。認可(所有権)を RLS ではなくサーバー側ロジックで担保する方針を明文化。併せて neverthrow の層境界を明確化: 生成は infrastructure・消費は application、domain は Repository ポートの型注釈のみ、presentation は使用しない)
+- 更新: 2026-08-18(`snapshotId` の耐障害性: 予報世代を **PostgreSQL に永続化**(決定事項 #34。プロセス再起動・複数インスタンスでも引き当てられる)。`snapshotId` が**送られたのに解決できない場合は 409** とし、再取得を要求する(決定事項 #35)。決定事項 #31 の「既存維持」は `snapshotId` の**省略時のみ**に限定した。併せて、stale 応答でも新しい世代を発行する不変条件と、失効を掃除ではなく引き当てクエリの条件で判定することを明記)
 - ステータス: 確定(実装は新リポジトリで行う)
 
 ---
@@ -59,16 +61,19 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 | 20 | プロジェクト名 | **Haregi(ハレギ)** | 旧称 FabuForecast から刷新。「晴れ(天気)+着(服)」のダブルミーニング |
 | 21 | 日付の基準 | **JST 固定の `YYYY-MM-DD` 文字列** | 「今日」の判定・upsert キー・気象庁 JSON(JST)を跨ぐ日付ズレを排除。`Date` オブジェクトを境界越しに渡さない(§9 参照) |
 | 22 | バージョン管理方針 | **初回 commit で lockfile ごと固定・更新は1パッケージずつ** | TanStack Start v1 / TS7 / oxfmt ベータ等、全レイヤーが新しいため問題発生時の切り分けコストを抑える(§9 参照) |
-| 23 | デプロイ先 | **未定(明示的保留)** | 現段階では決めない。ただしサーバー側キャッシュ(インメモリ前提)と web→api の2プロセス+プロキシ構成は **Node 常駐プロセスを暗黙の前提**としており、サーバーレス系を選ぶ場合はキャッシュ置き場とプロキシ構成の再設計が必要になる点をデプロイ先決定時に再確認する |
+| 23 | デプロイ先 | **未定(明示的保留)** | 現段階では決めない。ただしサーバー側キャッシュ(インメモリ前提)と web→api の2プロセス+プロキシ構成は **Node 常駐プロセスを暗黙の前提**としており、サーバーレス系を選ぶ場合はキャッシュ置き場とプロキシ構成の再設計が必要になる点をデプロイ先決定時に再確認する。なお**予報世代(`snapshotId`)の保持は決定事項 #34 で PostgreSQL へ移した**ため、再設計の対象として残るのは「気象庁への取得を抑制するインメモリキャッシュ(TTL 30〜60分)」とプロキシ構成であり、保存時の気温解決はプロセス構成に依存しない |
 | 24 | ロギング | **pino を `apps/api` に導入** | Hono の標準 `logger` ミドルウェアより構造化(JSON)出力・ログレベル制御に優れ、本番運用時の解析がしやすい。web には導入しない(SSR/ブラウザ両対応のログ基盤は本規模には過剰) |
 | 25 | API ドキュメント | **`@hono/zod-openapi` + `@hono/swagger-ui`** | 既存の Zod スキーマ(`packages/schema`)をそのまま OpenAPI 定義に転用でき、二重管理を避けられる。`/api/doc` で Swagger UI を公開し、手動での API 仕様書メンテナンスを不要にする |
-| 26 | バックエンドアーキテクチャ | **軽量オニオンアーキテクチャ(機能優先ディレクトリ)** | `apps/api` に domain/application/infrastructure/presentation の4層分離を導入し、外部 I/O(気象庁・DB・Better Auth)への依存をドメインロジックから切り離す。全3機能(認証・天気予報・コーディネート)の規模では DDD 戦術パターン(集約・値オブジェクト等)は過剰と判断し見送り。ディレクトリは既存の機能単位垂直スライス(実装プランのフェーズ4〜6)と一致させるため層優先ではなく機能優先(`features/{auth,forecast,coordinate}/{domain,application,infrastructure,presentation}`)を採用。neverthrow は従来どおり `apps/api` のみだが、適用範囲を infrastructure 層に限定し、application 層以降は型付きエラーの throw/catch に統一する(決定事項 #19 を具体化) |
+| 26 | バックエンドアーキテクチャ | **軽量オニオンアーキテクチャ(機能優先ディレクトリ)** | `apps/api` に domain/application/infrastructure/presentation の4層分離を導入し、外部 I/O(気象庁・DB・Better Auth)への依存をドメインロジックから切り離す。全3機能(認証・天気予報・コーディネート)の規模では DDD 戦術パターン(集約・値オブジェクト等)は過剰と判断し見送り。ディレクトリは既存の機能単位垂直スライス(実装プランのフェーズ4〜6)と一致させるため層優先ではなく機能優先(`features/{auth,forecast,coordinate}/{domain,application,infrastructure,presentation}`)を採用。neverthrow は従来どおり `apps/api` のみだが、**生成を infrastructure 層・消費を application 層に限定**し(domain は Repository ポートの戻り値型として型のみ参照してよく、presentation は触れない)、application 層より外は型付きエラーの throw/catch に統一する(決定事項 #19 を具体化) |
 | 27 | 開発プロセス | **フロントエンド・バックエンド共に TDD(テスト駆動開発)で実装** | 各層・各コンポーネントとも「失敗するテストを書く(Red)→ 実装して通す(Green)→ リファクタリング(Refactor)」の順で進める。バックエンドは `domain` の純粋ロジックと `application` のユースケースを中心に単体テストを先行させる。フロントエンドは `packages/schema` 側のバリデーション/日付ユーティリティに加え、`apps/web` の React コンポーネントも `@testing-library/react` でテストを先行させる(決定事項 #11 の「UI テスト・E2E はスコープ外」を修正し、**コンポーネントテストはスコープ内・E2E は引き続きスコープ外**とする) |
 | 28 | フロントエンドアーキテクチャ | **機能優先スライス + 副作用の層分離(軽量 FSD 風)** | `apps/web` に Feature-Sliced Design の思想のうち「機能スライス」と「依存方向の一方向ルール」のみを採用し、`features/{auth,forecast,coordinate}/{components,hooks,api,model}` の構成をとる。api 側の軽量オニオン(決定事項 #26)と層が対応(routes ≒ presentation / hooks ≒ application / api ≒ infrastructure / model ≒ domain)するため、実装プランの垂直スライスを web にもそのまま適用でき、両側を同じ語彙で語れる。FSD 本来の6層(app/pages/widgets/features/entities/shared)は全3機能の規模では entities / widgets が空洞化するため採らない。Atomic Design は shadcn/ui と粒度定義が競合するため不採用。グローバル状態管理ライブラリ(Redux / Zustand 等)も不採用(サーバー状態は TanStack Query、セッションは Better Auth client、フォームは RHF が保持するため残余状態がほぼない) |
 | 29 | 気温スナップショットの基準地域 | **保存時に「表示中の地域」の予報から引く** | 表示地域の切替(spec §2.2 Must)があるため、登録地域固定にすると画面に表示されていた気温と DB の記録が食い違い、後から復元できない。サーバーが表示中地域の予報から解決する(**気温値そのものはクライアントから受け取らない**原則は維持。決定事項 #21 と併せて §5 参照)。地域をまたいだ記録が同一履歴に混在する点は許容し、「似た気温の日に何を着たか」(Could)の実装時に地域の扱いを再検討する。**地域の指定方法は決定事項 #30 で `areaCode` から `snapshotId` に変更した** |
-| 30 | 表示気温と保存値の同一性 | **`snapshotId` を往復させ、表示に使ったのと同一世代のキャッシュから気温を引く** | 決定事項 #29 の当初案(`areaCode` を送りサーバーが保存時に予報を引き直す)では、spec §2.3 の「画面に出ていた気温と記録が一致する」保証を満たせない。表示から保存までの間にキャッシュが更新される・画面が TanStack Query の stale データを表示している・保存時だけ気象庁取得に失敗する、のいずれでも画面と DB が食い違うため。`GET /api/forecast` が予報世代ごとに `snapshotId` を発行し、`PUT /api/coordinates` はそれを送り返す。**気温値をクライアントから受け取らない原則は維持**され(改ざんできるのは「どの世代か」だけで値ではない)、かつサーバーは引き直さない。予報キャッシュは世代単位で保持し、`snapshotId` が失効(世代が破棄済み)している場合は決定事項 #31 に従う。併せて由来(`areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`)を Coordinate に保存し、後から「どの地域・どの地点・いつ発表の予報・stale だったか」を説明できるようにする(§4 参照) |
-| 31 | 編集時のスナップショット | **`snapshotId` が送られない場合は既存の気温・由来を維持する** | 「保存のたびに予報を引き直す」設計だと、過去日のコーデを文言だけ編集した際に予報範囲外となり、蓄積済みの気温が null で上書きされて失われる。気温スナップショットは本アプリの差別化(「気温と紐付けて振り返る」「似た気温の日」「AI 提案」)の土台であり、後から復元できないため、**編集操作で失われないことを最優先**する。実装上は「`snapshotId` があればその世代から引いて上書き、なければ既存値を維持」とし、新規作成・当該週の再計画では前者、過去記録の文言修正では後者が自然に選ばれる。**この挙動は実装前にテストケースとして固定する**(過去日の編集で気温が保持されること・予報範囲外の新規作成で null になること) |
-| 32 | 一括 upsert の競合制御 | **各 item の `updatedAt` で楽観ロックし、不一致は 409** | `PUT /api/coordinates` は最大7件を一括で置き換えるため、2つの画面(別タブ・スマホと PC)で同じ週を開くと、古い画面からの保存が新しい変更を黙って上書きする。ペルソナが「週の初めにまとめて計画する」使い方をする以上、同じ週を複数デバイスで触る状況は例外ではない。読み込み時の `updatedAt` を各 item に含め、サーバー側で DB の値と照合し、不一致なら 409 を返してフロントに再読み込みを促す。新規作成(既存レコードなし)の場合は `updatedAt` を送らない |
+| 30 | 表示気温と保存値の同一性 | **`snapshotId` を往復させ、表示に使ったのと同一世代から気温を引く** | 決定事項 #29 の当初案(`areaCode` を送りサーバーが保存時に予報を引き直す)では、spec §2.3 の「画面に出ていた気温と記録が一致する」保証を満たせない。表示から保存までの間にキャッシュが更新される・画面が TanStack Query の stale データを表示している・保存時だけ気象庁取得に失敗する、のいずれでも画面と DB が食い違うため。`GET /api/forecast` が予報世代ごとに `snapshotId` を発行し、`PUT /api/coordinates` はそれを送り返す。**気温値をクライアントから受け取らない原則は維持**され(改ざんできるのは「どの世代か」だけで値ではない)、かつサーバーは引き直さない。予報世代は**インメモリキャッシュではなく PostgreSQL に永続化**して引き当てる(決定事項 #34)。`snapshotId` が**送られたのに解決できない**場合は 409 を返して再取得を求める(決定事項 #35)。**送られなかった**場合のみ決定事項 #31 に従い既存値を維持する。併せて由来(`areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`)を Coordinate に保存し、後から「どの地域・どの地点・いつ発表の予報・stale だったか」を説明できるようにする(§4 参照) |
+| 31 | 編集時のスナップショット | **`snapshotId` が送られない場合は既存の気温・由来を維持する** | 「保存のたびに予報を引き直す」設計だと、過去日のコーデを文言だけ編集した際に予報範囲外となり、蓄積済みの気温が null で上書きされて失われる。気温スナップショットは本アプリの差別化(「気温と紐付けて振り返る」「似た気温の日」「AI 提案」)の土台であり、後から復元できないため、**編集操作で失われないことを最優先**する。実装上は「`snapshotId` があればその世代から引いて上書き、**なければ**既存値を維持」とし、新規作成・当該週の再計画では前者、過去記録の文言修正では後者が自然に選ばれる。**この「維持」は `snapshotId` が省略された場合に限る**(決定事項 #35)。送られたのに解決できない `snapshotId` を「省略」と同じ扱いにすると、ユーザーは画面の気温が記録されたと信じたまま実際には別世代の古い値(または null)が残り、決定事項 #30 の同一性保証が黙って破れるため、その場合は 409 とする。**この挙動は実装前にテストケースとして固定する**(過去日の編集で気温が保持されること・予報範囲外の新規作成で null になること) |
+| 32 | 一括 upsert の競合制御 | **各 item の `version`(単調増加する整数)で楽観ロックし、不一致・省略とも 409(fail-closed・条件付き書き込み)** | `PUT /api/coordinates` は最大7件を一括で置き換えるため、2つの画面(別タブ・スマホと PC)で同じ週を開くと、古い画面からの保存が新しい変更を黙って上書きする。ペルソナが「週の初めにまとめて計画する」使い方をする以上、同じ週を複数デバイスで触る状況は例外ではない。読み込み時の `version` を各 item に含め、サーバー側で DB の値と照合し、不一致なら 409 を返してフロントに再読み込みを促す。新規作成(既存レコードなし)の場合のみ `version` を送らない。**照合は fail-closed とし、既存レコードに対する `version` の省略も 409 とする**(任意扱いのままでは、値を送らないだけでロックを迂回して他の編集を無言で上書きでき、全項目が空の item ではレコード削除にまで至るため、楽観ロックが実質無効になる)。**実装は「SELECT で照合 → UPDATE / DELETE」の二段構えにしない**。並行リクエストが両方とも照合を通過する TOCTOU が残るため、`WHERE user_id = ? AND date = ? AND version = ?` の条件付き書き込みを1文で実行し、**更新件数0を競合として 409** に変換する。新規作成は `(userId, date)` 一意制約の衝突を 409 に変換する。空入力による削除分岐も同じ条件付き書き込みで行い、1件でも競合したらトランザクション全体をロールバックする。**成功した更新では同じ文の中で `version = version + 1` し、新しい値をレスポンスで返す**。前進させないと更新後も旧トークンが有効なままとなり、同じ値を持つ後続リクエストが何度でも条件を満たして並行保存が両方成功する。**トークンに `updatedAt`(wall-clock)を使わない**理由は、カラム精度内で同値になる場合や NTP による時計の逆行で「更新後も旧トークンが一致する」状態が生じ、等値照合のトークンに必要な『版ごとに必ず値が変わる』性質を保証できないため。`version` は DB 内のインクリメントで生成されるため、時計にもアプリの状態にも依存しない(`updatedAt` は監査用に残す)。**空入力の item は削除対象が存在しない場合のみ no-op(200)**とし、存在するのに `updatedAt` が不一致・省略なら 409 とする(未入力の日を含む一括送信がペルソナの常態であり、そこで 409 を返すとバッチ全体が失敗して通常操作が成り立たないため。存在確認は 409 か no-op かの判定にのみ用い、破壊的書き込みの根拠にはしない) |
+| 33 | 認可(所有権)の実施方法 | **DB の RLS は導入せず、サーバー側ロジックで担保する** | BaaS を採用せず(決定事項 #4)、DB への接続経路は `apps/api` の単一プロセス・単一ロールのみで、クライアントが DB に直結しない。この構成では RLS を入れても利用者の受け渡し(`SET LOCAL` 相当)をアプリ側で書く必要があり、防御の実質が変わらないまま二重管理になる。代わりに (a) `userId` はセッションからのみ取得し、リクエストの `userId` を信用しない (b) 所有者条件を `infrastructure` 層の Repository の内側に閉じ込め、`userId` を省略できるメソッドを定義しない (c) 更新・削除は必ず `AND user_id = ?` を併記する (d) 他人のリソースと不存在を区別せず 404 に統一する、をルール化する(`.agents/rules/api-design.md`)。**DB 側の網がない以上この保証を担うのはテストであり**、他ユーザーのレコードを取得・更新・削除できないことを必須テストケースとして固定する(`.agents/rules/testing.md`)。将来 DB に直接触れる経路が増える場合(管理用サービス・分析ツール・接続元が分散するデプロイ構成)は前提が変わるため再検討する |
+| 34 | 予報世代(`snapshotId`)の保持先 | **PostgreSQL に永続化する(インメモリキャッシュには置かない)** | 決定事項 #30 の同一性保証は「`GET` で表示した世代を `PUT` で引き当てられる」ことに依存する。プロセスローカルなインメモリキャッシュだけに置くと、`GET` 後の再起動(デプロイ・クラッシュ・ローリング更新)や、`PUT` が別インスタンスへ振り分けられた場合に、保持期間内でも世代を解決できない。**「Node 常駐プロセス」(決定事項 #23)は再起動や水平スケールを防ぐ保証ではない**。`forecast_snapshot` テーブル(§4)に世代ごと1行を書き、`snapshotId` で引く。**役割を分ける**: 気象庁への発信抑制は従来どおりインメモリキャッシュ(TTL 30〜60分)が担い、世代の引き当てはテーブルが担う。保持は24時間とし、取得時に期限切れの行を掃除する。書き込みは地域ごと30〜60分に1回程度で、追加の依存パッケージも要らない(既存の PostgreSQL + Drizzle で完結する)。**`GET /api/forecast` が 200 を返すときは必ず引き当て可能な `snapshotId` を返す**(last-known-good を stale として返す場合も新しい行を発行する)。**失効の判定は引き当てクエリの条件(`created_at > now() - interval '24 hours'`)で行い**、行の掃除は容量管理として別に走らせる(掃除の実行有無に失効判定を依存させない) |
+| 35 | `snapshotId` が解決できない場合 | **黙って保存せず 409 を返し、予報の再取得を求める** | 「送られていない」(決定事項 #31 の既存維持)と「送られたが解決できない」を区別しない実装では、保持期間を超えた世代・掃除済みの世代を指す保存が、新規行では null、既存行では古い値のまま**成功**してしまい、ユーザーは画面に出ていた気温が記録されたと信じたまま食い違いに気づけない。気温スナップショットは後から復元できないため、**曖昧なまま保存するより失敗させる**。フロントは 409 を受けたら予報を再取得し、新しい `snapshotId` で再送する(入力中のコーデは保持する)。**`version` 競合の 409(決定事項 #32)とはエラーコードで区別する** — 前者は「再読み込みして編集し直す」、後者は「予報を取り直して同じ入力のまま再送する」であり、ユーザーに促す操作が異なるため。**気象庁の障害が長期化しても 409 のループにはならない** — 決定事項 #34 の不変条件により、stale 表示のときも `GET` が有効な `snapshotId` を返すため、再取得 → 再送で保存できる(記録は `snapshotStatus: 'stale'`)。**予報が取れないこと自体は保存を妨げない** — `snapshotId` を送らなければ従来どおり保存でき、気温は null(新規)または既存維持(更新)になる(決定事項 #31)。この区別は spec §2.2 の「予報が取れなくてもコーデ入力・保存は継続できる」と両立する |
 
 ---
 
@@ -97,7 +102,7 @@ haregi/
 │       │   │   ├── auth/                # 認証機能
 │       │   │   │   ├── domain/          # ドメインロジック(外部依存なし。純粋関数・型)
 │       │   │   │   ├── application/     # ユースケース(Repository インターフェース経由でドメインを orchestrate)
-│       │   │   │   ├── infrastructure/  # Better Auth・Drizzle アダプタ(neverthrow はこの層のみ)
+│       │   │   │   ├── infrastructure/  # Better Auth・Drizzle アダプタ(ResultAsync を生成するのはこの層のみ)
 │       │   │   │   └── presentation/    # Hono ルート + OpenAPI 定義。ユースケースの例外を HTTP ステータスへ変換
 │       │   │   ├── forecast/            # 天気予報機能(同様の4層構成)
 │       │   │   └── coordinate/          # コーディネート機能(同様の4層構成)
@@ -126,9 +131,9 @@ presentation → application → domain
 infrastructure ┘         (domain のインターフェースを実装。依存はドメインへ向く)
 ```
 
-- **domain**: 型・純粋なドメインロジックのみ。他層(Hono・Drizzle・fetch・neverthrow)への依存を持たない。Repository の**インターフェース**もここに定義する(依存性逆転)
-- **application**: ユースケース(例: `signup`, `getForecast`, `upsertCoordinates`)。domain のインターフェース経由で infrastructure を呼び出す。**neverthrow の `Result`/`ResultAsync` はこの層の公開シグネチャに出さない**。infrastructure から返る `ResultAsync` は `.match()` などでこの層の内部で処理し、失敗時は型付きのアプリケーションエラー(例: `ForecastUnavailableError`)を throw する
-- **infrastructure**: 外部 I/O(気象庁 JSON 取得・Drizzle・Better Auth・S3)を実装するアダプタ。domain で定義した Repository インターフェースを実装する。**neverthrow はこの層のみで使用**し、`ResultAsync<T, FetchError | ParseError | UnknownAreaError | DbError>` を返す
+- **domain**: 型・純粋なドメインロジックのみ。他層(Hono・Drizzle・fetch)への依存を持たない。Repository の**インターフェース**もここに定義する(依存性逆転)。**neverthrow の値には触れない**(生成も消費もしない)が、Repository ポートの戻り値型を表現するための型のみの依存(`import type { ResultAsync }`)は許容する — infrastructure が `ResultAsync` を返す以上ポートの型もそれを指す必要があり、ここを禁じると実装者がポートの配置か戻り値の型を独自判断で変えることになるため(決定事項 #26 の具体化)
+- **application**: ユースケース(例: `signup`, `getForecast`, `upsertCoordinates`)。domain のインターフェース経由で infrastructure を呼び出す。**`ResultAsync` を消費する層**(消費はここまで)であり、`ResultAsync` を自ら生成せず、**この層の公開シグネチャにも出さない**。infrastructure から返る `ResultAsync` は `.match()` などでこの層の内部で処理し、失敗時は型付きのアプリケーションエラー(例: `ForecastUnavailableError`)を throw する
+- **infrastructure**: 外部 I/O(気象庁 JSON 取得・Drizzle・Better Auth・S3)を実装するアダプタ。domain で定義した Repository インターフェースを実装する。**`ResultAsync` を生成する唯一の層**(`ok()` / `err()` / `fromPromise` を書くのはここだけ)であり、`ResultAsync<T, FetchError | ParseError | UnknownAreaError | DbError>` を返す
 - **presentation**: Hono ルート + `@hono/zod-openapi` の `createRoute` 定義。application のユースケースを呼び出し、throw されたアプリケーションエラーを `shared/http-errors.ts` の共通マッピングで HTTP ステータス(400 / 401 / 502 等)へ変換する。例外をここより上位(Hono フレームワーク層)に漏らさない
 
 `shared/` は機能をまたぐ横断的関心事(pino ロガー・OpenAPI/Swagger UI セットアップ・エラーマッピング)を置き、いずれの feature からも参照してよい。
@@ -211,11 +216,25 @@ export const coordinate = pgTable(
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
+    // ★ 楽観ロックのトークン(決定事項 #32)。条件付き更新の中で `version = version + 1` する。
+    //    wall-clock 値(updatedAt)は精度内の同値・NTP の逆行でトークンとして成立しないため使わない
+    version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow()
+    updatedAt: timestamp('updated_at').notNull().defaultNow()  // 監査用。ロックには使わない
   },
   (t) => [unique().on(t.userId, t.date)]    // ユーザー×日付で一意
 )
+
+export const forecastSnapshot = pgTable('forecast_snapshot', {
+  // ★ 予報世代の永続化(決定事項 #34)。`GET /api/forecast` が発行し、`PUT /api/coordinates` が引き当てる
+  snapshotId: text('snapshot_id').primaryKey(),
+  areaCode: text('area_code').notNull(),                     // 府県予報区コード
+  forecastIssuedAt: timestamp('forecast_issued_at').notNull(),
+  fetchedAt: timestamp('fetched_at').notNull(),
+  status: text('status').notNull(),                          // 'fresh' | 'stale'
+  payload: jsonb('payload').notNull(),                       // 正規化済み Forecast(気象庁の生 JSON ではない)
+  createdAt: timestamp('created_at').notNull().defaultNow()
+})
 ```
 
 現行スキーマからの変更点:
@@ -225,7 +244,8 @@ export const coordinate = pgTable(
 - **Coordinate に気温スナップショット(`maxTemperature` / `minTemperature`)を追加**。保存時にサーバー側が `snapshotId`(表示中の地域の予報世代。決定事項 #29 / #30)から該当日付の気温を引いて書き込み(予報範囲外の日付は null)、「似た気温の過去コーデ参照」「AI コーディネート提案」の材料を初回リリース時点から蓄積する(後から past データを復元するのは困難なため、これだけは Must フェーズで実装する)
 - **Coordinate に気温スナップショットの由来(`areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`)を追加**(決定事項 #30)。地域切替を許容する以上、気温値だけでは「東京と大阪のどちらを見て記録したか」「代表アメダス地点はどこか」「stale な予報だったか」を後から判別できず、蓄積データの解釈と将来の分析(「似た気温の日」参照・AI 提案)が成立しない
 - パスワードは Better Auth 管理(account テーブルの `password` に scrypt ハッシュ)。現行の bcrypt ハッシュは移行しない(本番ユーザー不在のため)
-- **`updatedAt` は同時編集の競合検出に使う**(決定事項 #32)。`PUT /api/coordinates` の各 item に読み込み時の `updatedAt` を含め、DB の値と不一致なら 409 を返す
+- **`forecast_snapshot` テーブルを追加**(決定事項 #34)。予報世代を PostgreSQL に持ち、`GET /api/forecast` が発行した `snapshotId` を `PUT /api/coordinates` から24時間以内に引き当てられるようにする。インメモリキャッシュだけに置くと、プロセス再起動や複数インスタンスで世代を解決できず、画面に出ていた気温と保存値が黙って食い違う。`payload` は**正規化済みの `Forecast`** を入れる(気象庁の生 JSON を DB に残さない。`.agents/rules/jma-forecast.md`)
+- **`version` は同時編集の競合検出に使う**(決定事項 #32)。`PUT /api/coordinates` の各 item に読み込み時の `version` を含め、**不一致または省略**なら 409 を返す。照合は `WHERE ... AND version = ?` の条件付き書き込みで行う(TOCTOU 回避)。**成功した更新では同じ文の中で `version = version + 1` し**、新しい値をレスポンスで返す(前進させないと旧トークンが有効なまま残り、楽観ロックが成立しない)。**`updatedAt` はロックに使わない** — wall-clock 値はカラム精度内で同値になる場合や NTP による逆行で「更新後も旧トークンが一致する」状態を作りうるため。`version` は DB 内のインクリメントで生成され、時計に依存しない
 
 マイグレーションは drizzle-kit(`drizzle-kit generate` / `migrate`)で管理する。
 
@@ -237,15 +257,16 @@ export const coordinate = pgTable(
 | --- | --- | --- |
 | `ALL /api/auth/*` | - | Better Auth ハンドラ(signup / login / logout / session / updateUser 等) |
 | `GET /api/forecast?area={code}` | 必要 | 気象庁 JSON から週間予報を取得し整形して返す。`area` 省略時はユーザーの登録地域、指定時はマスタ照合の上その地域(地域切替用)。短期の天気・降水確率は一次細分区域、週間の天気は週間予報区域、気温は代表アメダス地点のデータを地域マスタで解決する。レスポンスに **`snapshotId` / `areaCode` / `tempStation` / `fetchedAt` / `forecastIssuedAt` / `status`(`fresh` \| `stale`)** を含める(決定事項 #30) |
-| `GET /api/coordinates?from&to` | 必要 | 自分のコーデ一覧。**`from` <= `to` かつ期間は最大366日**。両方省略時は**直近30件**(日付降順)を返す(履歴の最小版がこれを使う)。写真がある場合は短命の署名付き GET URL をレスポンスに同梱(Should) |
-| `PUT /api/coordinates` | 必要 | `{ snapshotId?, items: [{ date, outerwear, tops, bottoms, imageKey?, updatedAt? }] }` を一括 upsert(**items は最大7件**、日付重複は 400)。気温スナップショットはサーバー側が `snapshotId` の指す**表示に使われたのと同一世代のキャッシュ**から該当日付の値を引いて書き込む(**気温値はクライアントから受け取らない**。決定事項 #29 / #30)。`snapshotId` が無い/失効している場合は既存の気温を維持する(決定事項 #31)。`updatedAt` が DB と不一致なら 409(決定事項 #32) |
-| `DELETE /api/coordinates/:date` | 必要 | 指定日のコーデ削除。写真があればストレージのオブジェクトも削除(Should) |
+| `GET /api/coordinates?from&to` | 必要 | 自分のコーデ一覧(各行に楽観ロック用の `version` を含める)。**`from` <= `to` かつ期間は最大366日**。両方省略時は**直近30件**(日付降順)を返す(履歴の最小版がこれを使う)。写真がある場合は短命の署名付き GET URL をレスポンスに同梱(Should) |
+| `PUT /api/coordinates` | 必要 | `{ snapshotId?, items: [{ date, outerwear, tops, bottoms, imageKey?, version? }] }`(`version` は**既存レコードでは必須**。新規作成時のみ省略可) を一括 upsert(**items は最大7件**、日付重複は 400)。気温スナップショットはサーバー側が `snapshotId` の指す**表示に使われたのと同一世代**(`forecast_snapshot`。決定事項 #34)から該当日付の値を引いて書き込む(**気温値はクライアントから受け取らない**。決定事項 #29 / #30)。`snapshotId` が**送られない**場合は既存の気温を維持する(決定事項 #31)。**送られたのに解決できない場合は 409** を返し、予報を再取得して再送させる(決定事項 #35)。**`version` が DB と不一致、または既存レコードに対して省略された場合は 409**(決定事項 #32)。照合は条件付き書き込み(`WHERE user_id = ? AND date = ? AND version = ?`)で行い、更新件数0を競合とする(ただし**空入力かつ対象レコードが存在しない item は no-op**)。**成功時は `version = version + 1` し、保存後の items(新しい `version` を含む)をレスポンスで返す** |
+| `DELETE /api/coordinates/:date` | 必要 | 指定日のコーデ削除(**Should**)。**読み込み時の `version` を必須入力とし**、`WHERE user_id = ? AND date = ? AND version = ?` の条件付き削除で削除件数0なら 409(決定事項 #32。`PUT` 経路にだけ楽観ロックをかけても、独立 DELETE が素通しなら同時編集によるデータ消失が残るため)。写真があればストレージのオブジェクトも削除 |
 | `POST /api/uploads` | 必要 | コーデ写真用の署名付きURL(presigned URL)を発行(Should)。ブラウザからストレージへ直接 PUT し、API サーバーに画像は通さない。**imageKey は `PUT /api/coordinates` で確定させる3ステップフロー**(presign → 直接 PUT → 確定)。確定されなかったキーは孤児オブジェクトとして許容し、定期掃除は Could |
 | `GET /api/doc` | 不要 | Swagger UI(`@hono/swagger-ui`)。`/api/openapi.json` の OpenAPI スキーマを表示する開発用ドキュメント |
 
 ### 設計原則
 
 - セッション判定は `presentation` 層のミドルウェアで `auth.api.getSession({ headers })` を実行し、`c.get('user')` に格納。未認証は 401
+- **認可(所有権)は RLS ではなくサーバー側ロジックで担保する**(決定事項 #33)。`userId` はセッションからのみ得て、所有者条件を `infrastructure` 層の Repository の内側に閉じ込める。他人のリソースと不存在は区別せず 404 に統一する
 - **レイヤーと エラーハンドリング(neverthrow)**: 外部 I/O(気象庁 JSON 取得・Drizzle・S3)は `infrastructure` 層で `ResultAsync` にラップし、型付きエラー(例: `FetchError | ParseError | UnknownAreaError | DbError`)として返す。`application` 層のユースケースがこれを `.match()` 等で処理し、失敗時は型付きアプリケーションエラーを throw する(neverthrow を層の外へ持ち出さない)。`presentation` 層(ルートハンドラ)は throw されたエラーを `shared/http-errors.ts` の共通マッピングで HTTP ステータス(400 / 401 / 502 等)へ網羅的に変換し、例外を Hono フレームワーク層に漏らさない。気象庁取得にはタイムアウト(`AbortSignal.timeout`)と軽量なリトライを infrastructure 層で併用する
 - リクエストボディは `@hono/zod-validator` + `packages/schema` の Zod スキーマで検証(フロントと同一スキーマ)。`items` の件数上限(最大7件)・**リクエスト内の日付重複(400)・実在する暦日であること・保存可能範囲(今日から前後1年)**もここで強制する
 - **空レコードは作らない**。3項目を trim した上ですべて空の item は、upsert ではなく**その日付のレコードを削除**する(specification.md §4)
@@ -292,8 +313,8 @@ export const coordinate = pgTable(
 ### キャッシュ・障害時挙動
 
 - **地域コード単位でサーバー側キャッシュ(30〜60分)**を行い、気象庁サーバーへの負荷をユーザー数に比例させない(インメモリ前提。デプロイ先決定時に §2 決定事項 #23 の注記を再確認)
-- **世代管理**: キャッシュのエントリは取得ごとに世代 ID(`snapshotId`)を持つ。`GET /api/forecast` はこれをレスポンスに含め、`PUT /api/coordinates` から送り返された `snapshotId` で同一世代を引き当てる(決定事項 #30)。**世代は TTL 切れ後もしばらく保持する**(表示から保存までの間に TTL が切れても引き当てられるように。保持期間は実装時に決める。目安24時間)
-- **last-known-good の保持**: TTL 切れ後の再取得に失敗しても、**最後に成功した予報を破棄せず保持し、`status: 'stale'` として返す**(取得時刻・予報発表時刻を添える)。これにより気象庁側の障害中もユーザーは予報を見られ、そこから保存したコーデには `snapshotStatus: 'stale'` が記録される。ブラウザ側の stale データ表示だけに頼らない
+- **世代管理**: 取得ごとに世代 ID(`snapshotId`)を発行し、**`forecast_snapshot` テーブル(PostgreSQL)に1行として書く**(決定事項 #34)。`GET /api/forecast` はこれをレスポンスに含め、`PUT /api/coordinates` から送り返された `snapshotId` で同一世代を引き当てる(決定事項 #30)。**インメモリキャッシュに世代を保持しない** — プロセス再起動や複数インスタンスでは引き当てられず、画面表示と保存値が黙って食い違うため。**保持は24時間**とする。**有効期限は引き当てのクエリ自身が判定する** — `WHERE snapshot_id = ? AND created_at > now() - interval '24 hours'` とし、期限切れの行が DB に残っていても引き当てを失敗させる(決定事項 #35 の 409 になる)。行の掃除(`DELETE`)は予報取得時に行うが、**それは容量管理のためであって失効の判定根拠にしない** — 掃除だけに頼ると、24時間経過後に予報 `GET` を挟まず古い画面から直接 `PUT` した場合に期限切れの行が引き当てに成功してしまう
+- **last-known-good の保持**: TTL 切れ後の再取得に失敗しても、**最後に成功した予報を破棄せず保持し、`status: 'stale'` として返す**(取得時刻・予報発表時刻を添える)。これにより気象庁側の障害中もユーザーは予報を見られ、そこから保存したコーデには `snapshotStatus: 'stale'` が記録される。ブラウザ側の stale データ表示だけに頼らない。**stale を返す場合も、その表示内容で新しい `forecast_snapshot` 行を発行し、有効な `snapshotId` を返す**(`status: 'stale'` / `fetchedAt` は最後に成功した取得時刻 / `forecastIssuedAt` はその予報の発表時刻 / `created_at` は発行時刻)。**`GET /api/forecast` が 200 を返す限り、その `snapshotId` は必ず引き当て可能である**という不変条件を保つ。これを満たさないと、障害が24時間を超えた時点で「表示は stale のまま・元の世代は期限切れ」となり、保存が 409 → 再取得 → 同じ stale 表示 → また 409 のループに陥って、spec §2.2 の Must「予報が取れなくてもコーデ入力・保存は継続できる」を満たせなくなる
 - **同時リクエストの束ね**: 同一地域への並行した取得要求は1本の fetch にまとめる(in-flight リクエストの共有)。キャッシュ失効の瞬間に同時アクセスが集中しても、気象庁への発信は1回に保つ
 - **リトライ**: 気象庁取得の再試行には**指数バックオフ + ジッター**を用いる(即時連打で相手側に負荷をかけない)。タイムアウトは `AbortSignal.timeout`
 - **気象庁取得失敗時(502)**: フロントは予報部にエラーメッセージと再試行ボタンを表示し、TanStack Query の stale データがあればそれを表示する。コーデ入力・保存は予報なしでも継続できる(スナップショットは null、`snapshotStatus: 'unavailable'`)
@@ -421,7 +442,7 @@ export const auth = betterAuth({
 1. **ワークスペース骨組み**: pnpm-workspace.yaml / turbo.json / tsconfig.base.json / oxlint・oxfmt 設定 / .env.example / docker-compose.yml
 2. **packages/schema**: Zod スキーマ(signup / login / coordinates)、地域マスタ(**生成・検証済みの `master-data/areas.ts` を移植**)、日付(JST)/気温整形ユーティリティ + Vitest。検証スクリプト(`master-data/validate-areas.mjs`)も `apps/api/scripts/validate-areas.ts` として移植し、気象庁側の変更検知に使う
 3. **packages/db**: Drizzle 設定 → Better Auth CLI でスキーマ生成 → user への `areaCode` 追加フィールドと `coordinate` テーブルを追記 → 初回マイグレーション
-4. **apps/api**: `shared/`(pino ロガー・OpenAPIHono + Swagger UI セットアップ・http-errors マッピング)→ 機能(auth → forecast → coordinate)ごとに **domain → infrastructure → application → presentation** の順で実装(neverthrow は infrastructure 層のみ)→ `app.ts` で各 feature の presentation ルータを合成 → シード → テスト
+4. **apps/api**: `shared/`(pino ロガー・OpenAPIHono + Swagger UI セットアップ・http-errors マッピング)→ 機能(auth → forecast → coordinate)ごとに **domain → infrastructure → application → presentation** の順で実装(neverthrow は infrastructure が生成し application が消費する)→ `app.ts` で各 feature の presentation ルータを合成 → シード → テスト
 5. **apps/web**: TanStack Start + Tailwind v4(`@tailwindcss/vite`)+ shadcn/ui 導入 → auth-client / RPC client / TanStack Query → **まず signup → login → session 取得が Vite プロキシ越しに通ること(Set-Cookie の転送・trustedOrigins・Cookie 属性)を確認**してから、ルート実装(landing → signup → login → forecast、`beforeLoad` の認証ガード含む)に進む
 6. **結合確認**: docker の PostgreSQL に対し signup → login → forecast 取得 → コーデ upsert の一連を通す
 7. Should 機能(履歴・設定・削除・天気アイコン・写真アップロード)を順次追加。写真はストレージ契約(S3 互換)を決めてから着手
