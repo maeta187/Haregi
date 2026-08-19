@@ -1,11 +1,11 @@
-import { tanstackStart } from '@tanstack/react-start/plugin/vite';
-import viteReact from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import viteReact from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
 
-import { resolveApiOrigin } from './api-origin.ts';
+import { resolveApiOrigin } from './api-origin.ts'
 
 // api の待受ポート(API_PORT)と転送先を同じ環境変数から導き、両者がずれないようにする
-const API_ORIGIN = resolveApiOrigin(process.env);
+const API_ORIGIN = resolveApiOrigin(process.env)
 
 export default defineConfig({
   server: {
@@ -25,4 +25,4 @@ export default defineConfig({
     // react の vite プラグインは start のプラグインより後に置く
     viteReact(),
   ],
-});
+})

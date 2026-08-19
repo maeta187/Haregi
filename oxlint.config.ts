@@ -1,7 +1,7 @@
-import reactHooks from 'eslint-plugin-react-hooks';
-import { defineConfig } from 'oxlint';
+import reactHooks from 'eslint-plugin-react-hooks'
+import { defineConfig } from 'oxlint'
 
-const BUILTIN_RULES = new Set(['rules-of-hooks', 'exhaustive-deps']);
+const BUILTIN_RULES = new Set(['rules-of-hooks', 'exhaustive-deps'])
 
 /**
  * React Hooks用のカスタムJSプラグインルール設定
@@ -17,7 +17,7 @@ const reactHooksJsRules = Object.fromEntries(
       key.replace('react-hooks/', 'react-hooks-js/'),
       severity,
     ]),
-);
+)
 
 export default defineConfig({
   // 明確な誤りは警告ではなくエラーにして、pnpm lint を品質ゲートとして機能させる
@@ -38,4 +38,4 @@ export default defineConfig({
     ...reactHooksJsRules,
   },
   ignorePatterns: ['dist/'],
-});
+})
