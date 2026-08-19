@@ -3,7 +3,7 @@
   "printWidth": 80,
   "tabWidth": 2,
   "useTabs": false,
-  "semi": true,
+  "semi": false,
   "singleQuote": true,
   "endOfLine": "lf",
   "ignorePatterns": ["node_modules/**", ".next/**", ".git/**", "pnpm-lock.yaml"]

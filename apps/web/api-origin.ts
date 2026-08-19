@@ -1,9 +1,9 @@
-const DEFAULT_API_PORT = '4000';
+const DEFAULT_API_PORT = '4000'
 
 type ApiEnv = {
-  API_ORIGIN?: string | undefined;
-  API_PORT?: string | undefined;
-};
+  API_ORIGIN?: string | undefined
+  API_PORT?: string | undefined
+}
 
 /**
  * Vite dev proxy の転送先(api のオリジン)を決める。
@@ -14,17 +14,17 @@ type ApiEnv = {
  */
 export function resolveApiOrigin(env: ApiEnv): string {
   if (env.API_ORIGIN) {
-    return assertValidUrl(env.API_ORIGIN, 'API_ORIGIN');
+    return assertValidUrl(env.API_ORIGIN, 'API_ORIGIN')
   }
 
-  const port = env.API_PORT || DEFAULT_API_PORT;
-  return assertValidUrl(`http://localhost:${port}`, 'API_PORT');
+  const port = env.API_PORT || DEFAULT_API_PORT
+  return assertValidUrl(`http://localhost:${port}`, 'API_PORT')
 }
 
 function assertValidUrl(value: string, source: string): string {
   if (!URL.canParse(value)) {
-    throw new Error(`${source} が不正です: ${value}`);
+    throw new Error(`${source} が不正です: ${value}`)
   }
 
-  return value;
+  return value
 }

@@ -10,5 +10,5 @@ export function Landing() {
         Web アプリです。
       </p>
     </main>
-  );
+  )
 }

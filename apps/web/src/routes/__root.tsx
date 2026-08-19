@@ -1,5 +1,5 @@
-import { createRootRoute, HeadContent, Scripts } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import { createRootRoute, HeadContent, Scripts } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -10,7 +10,7 @@ export const Route = createRootRoute({
     ],
   }),
   shellComponent: RootDocument,
-});
+})
 
 function RootDocument({ children }: { children: ReactNode }) {
   // ナビのログイン状態出し分け・トースト(sonner)のマウントはフェーズ4b で追加する
@@ -24,5 +24,5 @@ function RootDocument({ children }: { children: ReactNode }) {
         <Scripts />
       </body>
     </html>
-  );
+  )
 }
