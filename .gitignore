@@ -48,3 +48,5 @@ kit/
 
 # vscode
 .vscode/
+# graphify: ナレッジグラフの生成物(/graphify で再生成できる)
+graphify-out/
