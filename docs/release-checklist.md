@@ -30,6 +30,7 @@
 - [ ] readiness / health check エンドポイントがある(DB 接続を含めて判定する)
 - [ ] **本番でシードのテストユーザー(`admin@example.com`)が作られない**仕組みになっている(`pnpm db:seed` を本番で実行しない、または環境変数でガードする)
 - [ ] `LOG_LEVEL` が本番向け(`info`)に設定されている
+- [ ] **すべての Node プロセスが `TZ=UTC` で起動している**(api・シード・マイグレーション)。認証テーブルの期限カラムがタイムゾーンなしのため、プロセス間で TZ がずれるとセッションの期限判定が前後する([architecture.md §9](./architecture.md))
 - [ ] 気象庁の地域マスタ検証(`apps/api/scripts/validate-areas.ts`)を実行し、全58区分が通る
 
 ### 動作確認(手動・再現可能な手順として記録する)

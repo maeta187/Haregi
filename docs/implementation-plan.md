@@ -72,7 +72,7 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - **`forecast_snapshot` テーブル**(決定事項 #34。`snapshot_id` PK / `area_code` / `forecast_issued_at` / `fetched_at` / `status` / `payload`(jsonb・正規化済み `Forecast`)/ `created_at`)を追加。予報世代を永続化し、プロセス再起動・複数インスタンスでも `snapshotId` を引き当てられるようにする
 - 初回マイグレーション生成・適用(`pnpm db:generate` / `db:migrate`)
 - **絶対時刻は `timestamptz`**(自前定義テーブルのみ。認証テーブルは CLI 生成のまま。architecture.md §4)
-- テストは **Drizzle のスキーマ定義(`getTableConfig`)を検査する軽量なものに留める**。カラム型・複合一意制約・`version` の既定値・`date` が文字列モードであること・時刻がタイムゾーン付きであることを固定する。**実 DB へマイグレーションを適用して制約の効き目を確かめるのはフェーズ5a**(予報世代の永続化テストで DB を使うテスト基盤が立つため、そこで回収する)
+- テストは **Drizzle のスキーマ定義(`getTableConfig`)を検査する軽量なものに留める**。カラム型・複合一意制約・`version` の既定値・`date` が文字列モードであること・時刻がタイムゾーン付きであることを固定する。**実 DB へマイグレーションを適用して制約の効き目を確かめるのはフェーズ4a**(シードと認証の期限テストで実 DB が必要になる最初のフェーズ。そこで回収する)
 
 ---
 
@@ -99,7 +99,8 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - `src/index.ts`: @hono/node-server(:4000)
 - `scripts/seed.ts`(`auth.api.signUpEmail` 経由で `admin@example.com` / `password123` / `130000`)
 - Vitest: `domain` の検証ロジック単体テスト、認証ミドルウェアの 401 応答
-- Vitest(**時刻の混在を許容する条件**): 認証テーブルの期限カラム(`session.expiresAt` / `verification.expiresAt`)は Better Auth CLI 生成物のためタイムゾーンなしで持つ(architecture.md §4)。**DB と Node のタイムゾーンが UTC / JST いずれの組み合わせでも、期限切れセッションが確実に拒否され、有効なセッションが誤って失効しないこと**を確認する。これが崩れる場合は生成物の据え置きを見直す
+- Vitest(**フェーズ3からの繰り越し**): **初回マイグレーションを空の PostgreSQL に適用し、DB が不正な状態を実際に拒否すること**。`(userId, date)` の重複 INSERT が一意制約違反になること / ユーザー削除でコーデが cascade 削除されること / **スキーマ定義とマイグレーション SQL がドリフトしていないこと**(`drizzle-kit generate` で差分が出ない)。フェーズ3のテストは Drizzle のメタデータを見るだけで SQL の適用可否も制約の効き目も保証しない。**実 DB はこのフェーズで既に必要**(`scripts/seed.ts` が `auth.api.signUpEmail` 経由でユーザーを作り、下記の認証 TZ テストも DB を使う)ため、ここで回収する
+- Vitest(**時刻の混在を許容する条件**): 認証テーブルの期限カラム(`session.expiresAt` / `verification.expiresAt`)は Better Auth CLI 生成物のためタイムゾーンなしで持つ(architecture.md §4)。危険なのは組み合わせの静的な違いではなく、**書いた時と読む時で Node のタイムゾーンが変わる**こと(デプロイ間・複数インスタンス間で起こりうる)。`timestamp without time zone` は Node 側のローカル TZ で解釈されるため、**同一行を `TZ=UTC` のプロセスで作成 → `TZ=Asia/Tokyo` のプロセスで検証**し、**その逆も**行って、期限切れセッションが確実に拒否され有効なセッションが誤って失効しないことを固定する。運用側の対策(全 Node プロセスを `TZ=UTC` で動かす。architecture.md §9)と併せ、**片方が欠けても壊れない**ことを確認する。これが崩れる場合は生成物の据え置きを見直す
 
 ### 4b. apps/web
 
@@ -130,7 +131,6 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - `presentation/`: `GET /api/forecast?area={code}`(`area` 省略時は登録地域、指定時はマスタ照合の上その地域)を `@hono/zod-openapi` の `createRoute` で定義し `/api/doc` に自動反映。レスポンスに `snapshotId` / `areaCode` / `tempStation` / `fetchedAt` / `forecastIssuedAt` / `status` を含める。throw されたエラーを `shared/http-errors.ts` 経由で 400/502 へ変換
 - `scripts/validate-areas.ts`(`master-data/validate-areas.mjs` を移植。気象庁側の変更検知に継続利用。**リリース前と月次で手動実行する**運用とする)
 - Vitest: `domain` の正規化ロジック(fixture: 通常・欠損 `""`・奄美/十勝の親区分解決)・`infrastructure` のキャッシュ動作(**TTL 切れ後の last-known-good・同時リクエストの束ね**)・**世代の永続化**(`forecast_snapshot` への書き込み / **インメモリキャッシュを空にしても引き当てられること** / **期限切れの行が残ったままでも引き当てが失敗すること**(掃除ではなくクエリ条件で失効を判定しているか) / **stale 応答でも新しい世代が発行され、その `snapshotId` が引き当て可能であること**)・`application` のエラー変換
-- Vitest(**フェーズ3からの繰り越し**): **初回マイグレーションを空の PostgreSQL に適用し、DB が不正な状態を実際に拒否すること**。`(userId, date)` の重複 INSERT が一意制約違反になること / ユーザー削除でコーデが cascade 削除されること / **スキーマ定義とマイグレーション SQL がドリフトしていないこと**(`drizzle-kit generate` で差分が出ない)。フェーズ3のテストは Drizzle のメタデータを見るだけで SQL の適用可否も制約の効き目も保証せず、**実 DB を使うテスト基盤はこのフェーズ(世代の永続化テスト)で初めて必要になる**ため、ここで回収する
 
 ### 5b. apps/web
 

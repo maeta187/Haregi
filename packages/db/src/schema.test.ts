@@ -1,7 +1,13 @@
 import { getTableConfig } from 'drizzle-orm/pg-core'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { coordinate, forecastSnapshot, user } from '@haregi/db'
+import {
+  coordinate,
+  type ForecastSnapshotStatus,
+  forecastSnapshot,
+  type SnapshotStatus,
+  user,
+} from '@haregi/db'
 
 const columnsOf = (table: Parameters<typeof getTableConfig>[0]) =>
   new Map(getTableConfig(table).columns.map((column) => [column.name, column]))
@@ -125,4 +131,20 @@ describe('絶対時刻のカラム', () => {
       }
     },
   )
+})
+
+describe('状態値の型', () => {
+  // DB の CHECK 制約は導入しない(architecture.md §4)。不正値を弾くのは型と
+  // サーバー側ロジックだけなので、`$type<>()` が外れたことをテストで検出できるようにする
+  it('コーデの気温スナップショットの鮮度を3値に限る', () => {
+    expectTypeOf<
+      NonNullable<(typeof coordinate.$inferInsert)['snapshotStatus']>
+    >().toEqualTypeOf<SnapshotStatus>()
+  })
+
+  it('予報世代の鮮度を fresh / stale に限る', () => {
+    expectTypeOf<
+      (typeof forecastSnapshot.$inferInsert)['status']
+    >().toEqualTypeOf<ForecastSnapshotStatus>()
+  })
 })
