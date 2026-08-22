@@ -249,7 +249,7 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
 - **`forecast_snapshot` テーブルを追加**(決定事項 #34)。予報世代を PostgreSQL に持ち、`GET /api/forecast` が発行した `snapshotId` を `PUT /api/coordinates` から24時間以内に引き当てられるようにする。インメモリキャッシュだけに置くと、プロセス再起動や複数インスタンスで世代を解決できず、画面に出ていた気温と保存値が黙って食い違う。`payload` は**正規化済みの `Forecast`** を入れる(気象庁の生 JSON を DB に残さない。`.agents/rules/jma-forecast.md`)
 - **`version` は同時編集の競合検出に使う**(決定事項 #32)。`PUT /api/coordinates` の各 item に読み込み時の `version` を含め、**不一致または省略**なら 409 を返す。照合は `WHERE ... AND version = ?` の条件付き書き込みで行う(TOCTOU 回避)。**成功した更新では同じ文の中で `version = version + 1` し**、新しい値をレスポンスで返す(前進させないと旧トークンが有効なまま残り、楽観ロックが成立しない)。**`updatedAt` はロックに使わない** — wall-clock 値はカラム精度内で同値になる場合や NTP による逆行で「更新後も旧トークンが一致する」状態を作りうるため。`version` は DB 内のインクリメントで生成され、時計に依存しない
 
-- **自前で定義するテーブルの絶対時刻は `timestamptz`(タイムゾーン付き)で持つ**。`coordinate` の `forecastIssuedAt` / `createdAt` / `updatedAt` と `forecast_snapshot` の3カラムが対象。予報世代の失効判定(`created_at > now() - interval '24 hours'`。決定事項 #34 / #35)を **DB セッションのタイムゾーン設定から独立させる**ため。`timestamp without time zone` のままだと、接続先の `TimeZone` 設定次第で24時間の境界がずれ、「保持は24時間」という保証が環境依存になる。**認証テーブル(user / session / account / verification)はタイムゾーンなしのまま**とし、揃えない — Better Auth CLI の生成物であり、手で書き換えても再生成で戻るため。認証側の時刻を失効判定に使わないことでこの混在を許容する
+- **自前で定義するテーブルの絶対時刻は `timestamptz`(タイムゾーン付き)で持つ**。`coordinate` の `forecastIssuedAt` / `createdAt` / `updatedAt` と `forecast_snapshot` の3カラムが対象。予報世代の失効判定(`created_at > now() - interval '24 hours'`。決定事項 #34 / #35)を **DB セッションのタイムゾーン設定から独立させる**ため。`timestamp without time zone` のままだと、接続先の `TimeZone` 設定次第で24時間の境界がずれ、「保持は24時間」という保証が環境依存になる。**認証テーブル(user / session / account / verification)はタイムゾーンなしのまま**とし、揃えない — Better Auth CLI の生成物であり、手で書き換えても再生成で戻るため。認証側の期限(`session.expiresAt` / `verification.expiresAt`)は **Better Auth 自身が書き・読む閉じた系統**であり、我々が書く予報世代の失効判定とは独立している。ただしタイムゾーンなしの列である以上 DB セッションの TZ 設定の影響は受けうるため、**異なる TZ でも認証の期限判定が正しいことをフェーズ4a のテストで確認する**(混在を許容する条件)
 - **DB の CHECK 制約・enum は導入しない**。`snapshotStatus`(`'fresh' | 'stale' | 'unavailable'`)・`status`(`'fresh' | 'stale'`)・`version >= 1` はいずれも DB 制約で固定できるが、初回リリースでは**型(Zod / TypeScript)とサーバー側ロジックで担保する**。理由は (a) これらの値を書くのは `apps/api` の単一経路のみで、クライアントから直接 DB に届かない (b) 状態値の追加(例: `'partial'`)のたびにマイグレーションが必要になる、の2点。**代わりにテストで固定する**(`.agents/rules/testing.md`)。将来 DB へ直接触れる経路が増える場合(決定事項 #33 の再検討条件と同じ)は、併せて CHECK 制約の追加を検討する
 
 マイグレーションは drizzle-kit(`drizzle-kit generate` / `migrate`)で管理する。
@@ -403,6 +403,7 @@ export const auth = betterAuth({
 
 - 日付はすべて **JST 基準の `YYYY-MM-DD` 文字列**として扱い、`Date` オブジェクトをモジュール境界(API・DB・コンポーネント間)越しに渡さない
 - 「今日」の判定・upsert キー・気象庁 JSON の `timeDefines`(+09:00)をすべて JST に統一し、サーバーの実行タイムゾーン(UTC 等)に依存した深夜0時前後の日付ズレを排除する
+- **「暦日」と「絶対時刻」を区別する**。ユーザーが選ぶ日付(コーデの `date`、`GET /api/coordinates` の `from` / `to`)は**暦日**であり、JST の `YYYY-MM-DD` 文字列として扱う(DB は `date` 型・Drizzle は `mode: 'string'`)。一方、予報発表時刻・取得時刻・レコードの作成/更新時刻は**時点を指す絶対時刻**であり、`timestamptz` + `Date` で扱う(§4)。上記の「`Date` を境界越しに渡さない」は**暦日についての規定**であり、絶対時刻まで文字列化することを求めるものではない
 - 日付ユーティリティは `packages/schema` に置き、Vitest の対象とする
 
 ### バージョン管理方針

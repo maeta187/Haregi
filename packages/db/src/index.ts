@@ -1,5 +1,6 @@
 export { createDb } from './client.ts'
 export type { Db } from './client.ts'
+export type { ForecastSnapshotStatus, SnapshotStatus } from './schema.ts'
 export {
   account,
   accountRelations,

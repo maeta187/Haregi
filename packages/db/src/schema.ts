@@ -12,6 +12,15 @@ import {
 
 import { user } from './auth-schema.ts'
 
+/**
+ * 気温スナップショットの鮮度。DB の CHECK 制約は導入せず、型とサーバー側ロジックで担保する
+ * (architecture.md §4)。値を書くのは `apps/api` の単一経路のみで、クライアントは DB に直結しない。
+ */
+export type SnapshotStatus = 'fresh' | 'stale' | 'unavailable'
+
+/** 予報世代の鮮度。`unavailable` は世代として発行されないため取らない */
+export type ForecastSnapshotStatus = Extract<SnapshotStatus, 'fresh' | 'stale'>
+
 export {
   account,
   accountRelations,
@@ -28,7 +37,10 @@ export {
  * タイムゾーン設定から独立させるため(決定事項 #34 / #35)。
  *
  * 認証テーブル(`auth-schema.ts`)は Better Auth CLI の生成物でタイムゾーンなしのまま。
- * 手で書き換えても再生成で戻るため揃えない。認証側の時刻は失効判定に使わない。
+ * 手で書き換えても再生成で戻るため揃えない。認証側の期限(`session.expiresAt` /
+ * `verification.expiresAt`)は Better Auth 自身が書き・読むため系統としては閉じているが、
+ * タイムゾーンなしの列である以上 DB セッションの TZ 設定の影響を受けうる。
+ * 異なる TZ でも期限判定が正しいことはフェーズ4a のテストで確認する。
  */
 
 /**
@@ -55,8 +67,7 @@ export const coordinate = pgTable(
     areaCode: text('area_code'),
     tempStation: text('temp_station'),
     forecastIssuedAt: timestamp('forecast_issued_at', { withTimezone: true }),
-    // 'fresh' | 'stale' | 'unavailable'
-    snapshotStatus: text('snapshot_status'),
+    snapshotStatus: text('snapshot_status').$type<SnapshotStatus>(),
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
@@ -88,8 +99,7 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
     withTimezone: true,
   }).notNull(),
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
-  // 'fresh' | 'stale'
-  status: text('status').notNull(),
+  status: text('status').$type<ForecastSnapshotStatus>().notNull(),
   // 正規化済みの Forecast(気象庁の生 JSON は入れない)
   payload: jsonb('payload').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true })
