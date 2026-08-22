@@ -71,6 +71,8 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - `user.areaCode` と `coordinate` テーブル(architecture.md §4 の定義どおり。`unique(userId, date)`、**楽観ロック用の `version`(integer・default 1。決定事項 #32)**、気温スナップショット `real` null 可、**由来カラム `areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`**(決定事項 #30))を追記
 - **`forecast_snapshot` テーブル**(決定事項 #34。`snapshot_id` PK / `area_code` / `forecast_issued_at` / `fetched_at` / `status` / `payload`(jsonb・正規化済み `Forecast`)/ `created_at`)を追加。予報世代を永続化し、プロセス再起動・複数インスタンスでも `snapshotId` を引き当てられるようにする
 - 初回マイグレーション生成・適用(`pnpm db:generate` / `db:migrate`)
+- **絶対時刻は `timestamptz`**(自前定義テーブルのみ。認証テーブルは CLI 生成のまま。architecture.md §4)
+- テストは **Drizzle のスキーマ定義(`getTableConfig`)を検査する軽量なものに留める**。カラム型・複合一意制約・`version` の既定値・`date` が文字列モードであること・時刻がタイムゾーン付きであることを固定する。**実 DB へマイグレーションを適用して制約の効き目を確かめるのはフェーズ6a**(そこで DB を使うテストの基盤ごと用意する)
 
 ---
 
@@ -147,6 +149,7 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - `application/`: `listCoordinates` / `upsertCoordinates` ユースケース(**`deleteCoordinate` は作らない**。削除は Should であり本プランの対象外。日付を指定した削除は `PUT` の空入力 item で行える)。`upsertCoordinates` は `features/forecast` の `application`(`getForecastBySnapshotId`)を呼び出して**リクエストの `snapshotId`(表示に使われた予報世代。決定事項 #30)**から対象日の気温スナップショットを解決してから infrastructure へ渡す。**`snapshotId` が無い場合は既存レコードの気温・由来をそのまま維持する**(決定事項 #31。過去日の文言修正で気温を失わない)。**送られたのに解決できない場合は 409** とし、黙って null / 既存維持で保存しない(決定事項 #35)。予報取得失敗時も null で保存を継続する。infrastructure から返る Result はここで処理し、失敗時は型付きアプリケーションエラー(例: `CoordinateSaveError`)を throw する
 - `presentation/`: `GET /api/coordinates?from&to`(`from <= to` / 最大366日 / 両方省略で直近30件)/ `PUT /api/coordinates` を `createRoute` で定義し `/api/doc` に自動反映(**`DELETE /api/coordinates/:date` は実装しない**。Should 着手時に、所有者条件と `version` による条件付き削除・その所有権テストをまとめて実装する。仕様は `.agents/rules/api-design.md` に定義済み)。**気温スナップショットはクライアントから受け取らない**。**`PUT` は保存後の items(+1 済みの `version` を含む)をレスポンスで返す**。`GET` の各行にも `version` を含める。throw されたエラーを 400/401/**409**/500 へ変換
 - Vitest: `domain` のバリデーション(一意制約表現・items 上限・日付重複・暦日・範囲・全空判定)・`infrastructure` のトランザクション動作(部分失敗時の全件ロールバック)・`application` の気温スナップショット解決ロジック。**以下は仕様を固定するテストとして必ず書く**(決定事項 #31 / #32):
+  - **初回マイグレーションを空の PostgreSQL に適用し、DB が不正な状態を実際に拒否すること**(フェーズ3からの繰り越し)。`(userId, date)` の重複 INSERT が一意制約違反になること・ユーザー削除でコーデが cascade 削除されること・スキーマ定義とマイグレーション SQL がドリフトしていないこと(`drizzle-kit generate` で差分が出ないこと)。フェーズ3のテストは Drizzle のメタデータを見るだけで、SQL の適用可否も制約の効き目も保証しないため、DB を使うテスト基盤が立つこの段階で回収する
   - `snapshotId` なしで既存レコードを更新したとき、保存済みの気温・`areaCode`・`forecastIssuedAt` が維持されること
   - 予報範囲外の日付を新規作成したとき、気温が null かつ `snapshotStatus: 'unavailable'` になること
   - **解決できない `snapshotId` を送った保存が 409 になること**(決定事項 #35)。`snapshotId` を**省略**した保存が 409 にならず既存維持で成功することと対で固定する

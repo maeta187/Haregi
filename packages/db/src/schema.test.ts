@@ -100,3 +100,29 @@ describe('forecast_snapshot テーブル', () => {
     }
   })
 })
+
+describe('絶対時刻のカラム', () => {
+  // 予報世代の失効判定(`created_at > now() - interval '24 hours'`)は、DB セッションの
+  // タイムゾーン設定に左右されてはならない。自前で定義するテーブルはタイムゾーン付きで持つ
+  it.each([
+    [
+      'coordinate',
+      coordinate,
+      ['forecast_issued_at', 'created_at', 'updated_at'],
+    ],
+    [
+      'forecast_snapshot',
+      forecastSnapshot,
+      ['forecast_issued_at', 'fetched_at', 'created_at'],
+    ],
+  ] as const)(
+    '%s の時刻をタイムゾーン付きで保存する',
+    (_name, table, names) => {
+      const columns = columnsOf(table)
+
+      for (const name of names) {
+        expect(columns.get(name)?.getSQLType()).toBe('timestamp with time zone')
+      }
+    },
+  )
+})

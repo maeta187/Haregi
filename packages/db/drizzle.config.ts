@@ -4,8 +4,12 @@ import { defineConfig } from 'drizzle-kit'
 // CI やコンテナのように .env を置かない環境では、既に渡された環境変数をそのまま使う。
 try {
   process.loadEnvFile('../../.env')
-} catch {
-  // .env が無い場合は何もしない
+} catch (error) {
+  // ファイルが無いだけなら既存の環境変数で続行する。権限エラーや壊れた .env まで
+  // 握り潰すと、意図しない接続先へマイグレーションを当てかねないため区別する
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    throw error
+  }
 }
 
 const url = process.env['DATABASE_URL']

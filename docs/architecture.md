@@ -7,6 +7,7 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 - 更新: 2026-08-03(設計レビュー反映: 決定事項 #30〜#32 を追加。気温スナップショットの同一性保証(`snapshotId`)・編集時の維持ポリシー・一括 upsert の楽観ロック。併せてキャッシュの last-known-good / 束ね / バックオフ、Coordinate への由来カラム、写真の所有権・EXIF・孤児掃除を明文化)
 - 更新: 2026-08-18(決定事項 #32 を fail-closed 化(`updatedAt` の省略も 409・条件付き書き込みで TOCTOU 回避・成功時のトークン前進・空入力 item の no-op)。楽観ロックのトークンを `updatedAt` から単調増加する `version` 整数へ変更(時計の同値・逆行に依存しない保証)。決定事項 #33 を追加。認可(所有権)を RLS ではなくサーバー側ロジックで担保する方針を明文化。併せて neverthrow の層境界を明確化: 生成は infrastructure・消費は application、domain は Repository ポートの型注釈のみ、presentation は使用しない)
 - 更新: 2026-08-18(`snapshotId` の耐障害性: 予報世代を **PostgreSQL に永続化**(決定事項 #34。プロセス再起動・複数インスタンスでも引き当てられる)。`snapshotId` が**送られたのに解決できない場合は 409** とし、再取得を要求する(決定事項 #35)。決定事項 #31 の「既存維持」は `snapshotId` の**省略時のみ**に限定した。併せて、stale 応答でも新しい世代を発行する不変条件と、失効を掃除ではなく引き当てクエリの条件で判定することを明記)
+- 更新: 2026-08-22(実装レビュー反映: 自前定義テーブルの絶対時刻を `timestamptz` に統一(失効判定を DB セッションの TZ から独立させる)。`date` は `mode: 'string'` を明示。DB の CHECK 制約・enum を導入しない判断を §4 に明記)
 - ステータス: 確定(実装は新リポジトリで行う)
 
 ---
@@ -191,6 +192,7 @@ export const user = pgTable('user', {
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
   areaCode: text('area_code').notNull(),    // ★ additionalField: 気象庁 府県予報区コード(例 '130000' = 東京都)
+  // 認証テーブルの時刻は Better Auth CLI 生成のまま(タイムゾーンなし)。再生成で戻るため揃えない
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })
@@ -201,7 +203,7 @@ export const coordinate = pgTable(
   'coordinate',
   {
     id: serial('id').primaryKey(),
-    date: date('date').notNull(),           // ★ 現行モデルに無かった日付カラムを追加
+    date: date('date', { mode: 'string' }).notNull(), // ★ 日付カラムを追加。JST の `YYYY-MM-DD` 文字列で扱う(決定事項 #21)
     outerwear: text('outerwear').notNull().default(''),
     tops: text('tops').notNull().default(''),
     bottoms: text('bottoms').notNull().default(''),
@@ -211,7 +213,7 @@ export const coordinate = pgTable(
     // ★ 気温スナップショットの由来(決定事項 #30)。気温値だけでは後から出どころを説明できないため併せて保存する
     areaCode: text('area_code'),                          // 記録時に画面で表示していた府県予報区コード(気温なしは null)
     tempStation: text('temp_station'),                    // 気温を引いた代表アメダス地点コード(マスタ改訂の影響を切り分ける)
-    forecastIssuedAt: timestamp('forecast_issued_at'),    // 気象庁の予報発表時刻
+    forecastIssuedAt: timestamp('forecast_issued_at', { withTimezone: true }), // 気象庁の予報発表時刻
     snapshotStatus: text('snapshot_status'),              // 'fresh' | 'stale' | 'unavailable'(取得失敗・予報範囲外は 'unavailable')
     userId: text('user_id')
       .notNull()
@@ -219,8 +221,8 @@ export const coordinate = pgTable(
     // ★ 楽観ロックのトークン(決定事項 #32)。条件付き更新の中で `version = version + 1` する。
     //    wall-clock 値(updatedAt)は精度内の同値・NTP の逆行でトークンとして成立しないため使わない
     version: integer('version').notNull().default(1),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow()  // 監査用。ロックには使わない
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow() // 監査用。ロックには使わない
   },
   (t) => [unique().on(t.userId, t.date)]    // ユーザー×日付で一意
 )
@@ -229,11 +231,11 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
   // ★ 予報世代の永続化(決定事項 #34)。`GET /api/forecast` が発行し、`PUT /api/coordinates` が引き当てる
   snapshotId: text('snapshot_id').primaryKey(),
   areaCode: text('area_code').notNull(),                     // 府県予報区コード
-  forecastIssuedAt: timestamp('forecast_issued_at').notNull(),
-  fetchedAt: timestamp('fetched_at').notNull(),
+  forecastIssuedAt: timestamp('forecast_issued_at', { withTimezone: true }).notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
   status: text('status').notNull(),                          // 'fresh' | 'stale'
   payload: jsonb('payload').notNull(),                       // 正規化済み Forecast(気象庁の生 JSON ではない)
-  createdAt: timestamp('created_at').notNull().defaultNow()
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 })
 ```
 
@@ -246,6 +248,9 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
 - パスワードは Better Auth 管理(account テーブルの `password` に scrypt ハッシュ)。現行の bcrypt ハッシュは移行しない(本番ユーザー不在のため)
 - **`forecast_snapshot` テーブルを追加**(決定事項 #34)。予報世代を PostgreSQL に持ち、`GET /api/forecast` が発行した `snapshotId` を `PUT /api/coordinates` から24時間以内に引き当てられるようにする。インメモリキャッシュだけに置くと、プロセス再起動や複数インスタンスで世代を解決できず、画面に出ていた気温と保存値が黙って食い違う。`payload` は**正規化済みの `Forecast`** を入れる(気象庁の生 JSON を DB に残さない。`.agents/rules/jma-forecast.md`)
 - **`version` は同時編集の競合検出に使う**(決定事項 #32)。`PUT /api/coordinates` の各 item に読み込み時の `version` を含め、**不一致または省略**なら 409 を返す。照合は `WHERE ... AND version = ?` の条件付き書き込みで行う(TOCTOU 回避)。**成功した更新では同じ文の中で `version = version + 1` し**、新しい値をレスポンスで返す(前進させないと旧トークンが有効なまま残り、楽観ロックが成立しない)。**`updatedAt` はロックに使わない** — wall-clock 値はカラム精度内で同値になる場合や NTP による逆行で「更新後も旧トークンが一致する」状態を作りうるため。`version` は DB 内のインクリメントで生成され、時計に依存しない
+
+- **自前で定義するテーブルの絶対時刻は `timestamptz`(タイムゾーン付き)で持つ**。`coordinate` の `forecastIssuedAt` / `createdAt` / `updatedAt` と `forecast_snapshot` の3カラムが対象。予報世代の失効判定(`created_at > now() - interval '24 hours'`。決定事項 #34 / #35)を **DB セッションのタイムゾーン設定から独立させる**ため。`timestamp without time zone` のままだと、接続先の `TimeZone` 設定次第で24時間の境界がずれ、「保持は24時間」という保証が環境依存になる。**認証テーブル(user / session / account / verification)はタイムゾーンなしのまま**とし、揃えない — Better Auth CLI の生成物であり、手で書き換えても再生成で戻るため。認証側の時刻を失効判定に使わないことでこの混在を許容する
+- **DB の CHECK 制約・enum は導入しない**。`snapshotStatus`(`'fresh' | 'stale' | 'unavailable'`)・`status`(`'fresh' | 'stale'`)・`version >= 1` はいずれも DB 制約で固定できるが、初回リリースでは**型(Zod / TypeScript)とサーバー側ロジックで担保する**。理由は (a) これらの値を書くのは `apps/api` の単一経路のみで、クライアントから直接 DB に届かない (b) 状態値の追加(例: `'partial'`)のたびにマイグレーションが必要になる、の2点。**代わりにテストで固定する**(`.agents/rules/testing.md`)。将来 DB へ直接触れる経路が増える場合(決定事項 #33 の再検討条件と同じ)は、併せて CHECK 制約の追加を検討する
 
 マイグレーションは drizzle-kit(`drizzle-kit generate` / `migrate`)で管理する。
 

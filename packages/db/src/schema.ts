@@ -23,6 +23,15 @@ export {
 } from './auth-schema.ts'
 
 /**
+ * 自前で定義するテーブルの絶対時刻は、すべてタイムゾーン付き(`timestamptz`)で持つ。
+ * 予報世代の失効判定(`created_at > now() - interval '24 hours'`)を DB セッションの
+ * タイムゾーン設定から独立させるため(決定事項 #34 / #35)。
+ *
+ * 認証テーブル(`auth-schema.ts`)は Better Auth CLI の生成物でタイムゾーンなしのまま。
+ * 手で書き換えても再生成で戻るため揃えない。認証側の時刻は失効判定に使わない。
+ */
+
+/**
  * 日ごとのコーディネート。ユーザー×日付で一意(upsert 前提)。
  *
  * 気温スナップショット(`maxTemperature` / `minTemperature`)とその由来は、
@@ -45,7 +54,7 @@ export const coordinate = pgTable(
     // 気温スナップショットの由来。気温値だけでは後から出どころを説明できないため併せて保存する
     areaCode: text('area_code'),
     tempStation: text('temp_station'),
-    forecastIssuedAt: timestamp('forecast_issued_at'),
+    forecastIssuedAt: timestamp('forecast_issued_at', { withTimezone: true }),
     // 'fresh' | 'stale' | 'unavailable'
     snapshotStatus: text('snapshot_status'),
     userId: text('user_id')
@@ -54,9 +63,13 @@ export const coordinate = pgTable(
     // 楽観ロックのトークン。条件付き更新の中で `version = version + 1` する。
     // wall-clock 値(updatedAt)は精度内の同値・時計の逆行でトークンとして成立しないため使わない
     version: integer('version').notNull().default(1),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     // 監査用。楽観ロックには使わない
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [unique().on(t.userId, t.date)],
 )
@@ -71,11 +84,15 @@ export const coordinate = pgTable(
 export const forecastSnapshot = pgTable('forecast_snapshot', {
   snapshotId: text('snapshot_id').primaryKey(),
   areaCode: text('area_code').notNull(),
-  forecastIssuedAt: timestamp('forecast_issued_at').notNull(),
-  fetchedAt: timestamp('fetched_at').notNull(),
+  forecastIssuedAt: timestamp('forecast_issued_at', {
+    withTimezone: true,
+  }).notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
   // 'fresh' | 'stale'
   status: text('status').notNull(),
   // 正規化済みの Forecast(気象庁の生 JSON は入れない)
   payload: jsonb('payload').notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 })

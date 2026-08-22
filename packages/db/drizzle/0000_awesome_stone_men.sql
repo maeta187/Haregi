@@ -25,23 +25,23 @@ CREATE TABLE "coordinate" (
 	"min_temperature" real,
 	"area_code" text,
 	"temp_station" text,
-	"forecast_issued_at" timestamp,
+	"forecast_issued_at" timestamp with time zone,
 	"snapshot_status" text,
 	"user_id" text NOT NULL,
 	"version" integer DEFAULT 1 NOT NULL,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "coordinate_user_id_date_unique" UNIQUE("user_id","date")
 );
 --> statement-breakpoint
 CREATE TABLE "forecast_snapshot" (
 	"snapshot_id" text PRIMARY KEY NOT NULL,
 	"area_code" text NOT NULL,
-	"forecast_issued_at" timestamp NOT NULL,
-	"fetched_at" timestamp NOT NULL,
+	"forecast_issued_at" timestamp with time zone NOT NULL,
+	"fetched_at" timestamp with time zone NOT NULL,
 	"status" text NOT NULL,
 	"payload" jsonb NOT NULL,
-	"created_at" timestamp DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "session" (
