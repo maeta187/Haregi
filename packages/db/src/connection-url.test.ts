@@ -7,38 +7,27 @@ const base = 'postgresql://haregi:haregi@127.0.0.1:5432/haregi'
 const optionsOf = (connectionString: string) =>
   new URL(connectionString).searchParams.get('options')
 
-describe('接続文字列のタイムゾーン正規化', () => {
+describe('接続文字列のタイムゾーン固定', () => {
   it('options が無ければ UTC 固定だけを足す', () => {
     expect(optionsOf(withUtcTimezone(base))).toBe('-c timezone=UTC')
   })
 
-  it('タイムゾーン以外の options は残す', () => {
-    const url = `${base}?options=${encodeURIComponent('-c statement_timeout=5000 -c lock_timeout=1000')}`
-
-    expect(optionsOf(withUtcTimezone(url))).toBe(
-      '-c statement_timeout=5000 -c lock_timeout=1000 -c timezone=UTC',
-    )
-  })
-
-  // libpq の options は後勝ちなので、除去しそこねると UTC 固定が黙って外れる
+  // libpq の options は後勝ちで、末尾の指定が必ず効く(実 DB で確認済み)。
+  // 既存の指定を「消す」実装にすると、値の中に紛れた文字列まで壊しうる
   it.each([
+    '-c statement_timeout=5000',
     '-c timezone=Asia/Tokyo',
-    '-c TimeZone=Asia/Tokyo',
+    '-ctimezone=Asia/Tokyo',
+    '--timezone=Asia/Tokyo',
+    '--TimeZone=Asia/Tokyo',
+    '-c application_name=worker-ctimezone=foo',
     '-c statement_timeout=5000 -c timezone=Asia/Tokyo',
-  ])('仕込まれたタイムゾーン指定 %s を取り除く', (options) => {
-    const url = `${base}?options=${encodeURIComponent(options)}`
-    const normalized = optionsOf(withUtcTimezone(url))
-
-    expect(normalized).not.toMatch(/Tokyo/)
-    expect(normalized?.endsWith('-c timezone=UTC')).toBe(true)
-  })
-
-  it('タイムゾーン以外の options を残したまま仕込みを取り除く', () => {
-    const url = `${base}?options=${encodeURIComponent('-c timezone=Asia/Tokyo -c statement_timeout=5000')}`
-
-    expect(optionsOf(withUtcTimezone(url))).toBe(
-      '-c statement_timeout=5000 -c timezone=UTC',
+  ])('%s の後ろに UTC 固定を置く', (options) => {
+    const normalized = optionsOf(
+      withUtcTimezone(`${base}?options=${encodeURIComponent(options)}`),
     )
+
+    expect(normalized).toBe(`${options} -c timezone=UTC`)
   })
 
   it('他のクエリパラメータを残す', () => {

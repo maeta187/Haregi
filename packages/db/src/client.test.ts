@@ -50,15 +50,15 @@ describe('接続の設定', () => {
     void pool.end()
   })
 
-  // 接続 URL の `options` は後勝ちになるため、仕込まれると固定が黙って外れる
-  it('接続文字列に仕込まれたタイムゾーン指定を無効化する', () => {
+  // libpq の options は後勝ち。仕込まれた指定より後ろに UTC を置いて打ち消す
+  it('接続文字列に仕込まれたタイムゾーン指定を打ち消す', () => {
     vi.stubEnv('TZ', 'UTC')
 
     const { pool } = createDb(
       `${connectionString}?options=${encodeURIComponent('-c timezone=Asia/Tokyo')}`,
     )
 
-    expect(optionsOf(pool)).toBe('-c timezone=UTC')
+    expect(optionsOf(pool)?.endsWith('-c timezone=UTC')).toBe(true)
     void pool.end()
   })
 

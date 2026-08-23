@@ -1,19 +1,16 @@
-/** libpq の `options` から `timezone` の指定だけを取り除く(`-c timezone=…` / `-ctimezone=…`) */
-const stripTimezone = (options: string): string =>
-  options
-    .replace(/-c\s*timezone=\S+/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
 /**
- * 接続文字列の `options` を正規化し、DB セッションを UTC に固定する。
+ * 接続文字列の `options` の末尾に「DB セッションを UTC に固定する」指定を置く。
  *
  * Node 側の `TZ` を UTC にしても、**DB セッションのタイムゾーンは DB の既定値**に
  * なるため、認証テーブルの `timestamp DEFAULT now()` がそこでズレる(architecture.md §9)。
  *
  * libpq の `options` は**後勝ち**なので、`?options=-c timezone=Asia/Tokyo` を
- * 仕込まれると固定が黙って外れる。タイムゾーンの指定だけを取り除き、
- * `statement_timeout` などの正当な設定は残したうえで、末尾に UTC を置く。
+ * 仕込まれていても、末尾に `-c timezone=UTC` を置けば UTC になる(実 DB で確認済み)。
+ *
+ * **既存の指定を消さない**。`options` は `-c name=value` / `-cname=value` /
+ * `--name=value` を取り、値の中に任意の文字列が入りうる。文字列置換で消しにかかると
+ * `-c application_name=worker-ctimezone=foo` のような正当な値まで壊す一方、
+ * 長形式は取りこぼす。**末尾に置くだけで保証は足りる**ため、何も削らない。
  */
 export const withUtcTimezone = (connectionString: string): string => {
   if (!URL.canParse(connectionString)) {
@@ -24,11 +21,11 @@ export const withUtcTimezone = (connectionString: string): string => {
   }
 
   const url = new URL(connectionString)
-  const kept = stripTimezone(url.searchParams.get('options') ?? '')
+  const existing = url.searchParams.get('options')
 
   url.searchParams.set(
     'options',
-    kept ? `${kept} -c timezone=UTC` : '-c timezone=UTC',
+    existing ? `${existing} -c timezone=UTC` : '-c timezone=UTC',
   )
 
   return url.toString()
