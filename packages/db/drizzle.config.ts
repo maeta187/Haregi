@@ -1,5 +1,6 @@
 import { defineConfig } from 'drizzle-kit'
 
+import { withUtcTimezone } from './src/connection-url.ts'
 import { assertUtcTimezone } from './src/timezone.ts'
 
 // drizzle-kit は独立したプロセスとして起動するため、リポジトリ直下の .env を自分で読む。
@@ -28,5 +29,6 @@ export default defineConfig({
   schema: './src/schema.ts',
   out: './drizzle',
   dialect: 'postgresql',
-  dbCredentials: { url },
+  // drizzle-kit は createDb() を通らないため、ここで DB セッションを UTC に固定する
+  dbCredentials: { url: withUtcTimezone(url) },
 })

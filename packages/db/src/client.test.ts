@@ -45,4 +45,24 @@ describe('接続の設定', () => {
     expect(pool.options.options).toContain('timezone=UTC')
     void pool.end()
   })
+
+  // 接続 URL の `options` は接続時のオプションより後勝ちになる。
+  // `?options=-c timezone=Asia/Tokyo` を仕込まれると UTC 固定が黙って外れる
+  it.each([
+    'postgresql://u:p@127.0.0.1:5432/db?options=-c%20timezone%3DAsia%2FTokyo',
+    'postgresql://u:p@127.0.0.1:5432/db?options=-c+statement_timeout%3D1000',
+  ])('接続文字列で options を渡す経路を塞ぐ', (url) => {
+    vi.stubEnv('TZ', 'UTC')
+
+    expect(() => createDb(url)).toThrow(/options/)
+  })
+
+  it('options を含まない接続文字列は通す', () => {
+    vi.stubEnv('TZ', 'UTC')
+
+    const { pool } = createDb(`${connectionString}?application_name=haregi`)
+
+    expect(pool.options.options).toContain('timezone=UTC')
+    void pool.end()
+  })
 })

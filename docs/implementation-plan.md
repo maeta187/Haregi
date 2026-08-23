@@ -103,7 +103,7 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - Vitest(**フェーズ3からの繰り越し**): **初回マイグレーションを空の PostgreSQL に適用し、DB が不正な状態を実際に拒否すること**。`(userId, date)` の重複 INSERT が一意制約違反になること / ユーザー削除でコーデが cascade 削除されること / **スキーマ定義とマイグレーション SQL がドリフトしていないこと**(`drizzle-kit generate` で差分が出ない)。フェーズ3のテストは Drizzle のメタデータを見るだけで SQL の適用可否も制約の効き目も保証しない。**実 DB はこのフェーズで既に必要**(`scripts/seed.ts` が `auth.api.signUpEmail` 経由でユーザーを作り、下記の認証 TZ テストも DB を使う)ため、ここで回収する
 - **`TZ=UTC` の強制**(architecture.md §9): 認証テーブルの期限カラム(`session.expiresAt` / `verification.expiresAt`)は Better Auth CLI 生成物のためタイムゾーンなしで持つ(architecture.md §4)。`timestamp without time zone` は **Node 側のローカル TZ で解釈される**ため、書いたプロセスと読んだプロセスで `TZ` が違うとその差がそのまま期限のズレになる。**この列を tz 付きに直さない代わりに、UTC 以外のプロセスを起動させない**:
   - **検査自体はフェーズ3で `createDb()` の内側に入っている**ため、api・シードが `createDb()` を使う限り迂回できない(**DB セッションのタイムゾーンも接続時に UTC へ固定される**)。このフェーズでやるのは**各スクリプトへの `TZ=UTC` の注入**(`dev` / `start` / `scripts/seed.ts` / DB に触れるテスト)で、注入を忘れたら fail-fast で落ちる
-  - Vitest: **タイムゾーンを `Asia/Tokyo` に設定した PostgreSQL に対しても、接続後の `SHOW TimeZone` が `UTC` を返すこと**。DB 側の既定値が何であっても接続の設定が勝つことを、実 DB で固定する
+  - Vitest: **タイムゾーンを `Asia/Tokyo` に設定した PostgreSQL に対しても、接続後の `SHOW TimeZone` が `UTC` を返すこと**。DB 側の既定値が何であっても接続の設定が勝つことを、実 DB で固定する。**`createDb()` 経由と drizzle-kit 経由の両方**を対象にする(後者は `createDb()` を通らないため別経路)
   - **日付ユーティリティのテスト(`packages/schema`)は対象外**。あちらは意図的に別の TZ で回して JST 判定の正しさを確認するものであり、UTC を強制しない
 - Vitest: **`TZ` が `UTC` でないプロセスが起動を拒否されること**。tz なし列を据え置く判断は「全プロセスが UTC である」前提に乗っており、**その前提を守る門番が効いていることがテストの対象**になる(交差 TZ での一致テストは書かない — tz なし列では原理的に9時間ずれるため、通らないテストになる)
 

@@ -1,3 +1,4 @@
+export { withUtcTimezone } from './connection-url.ts'
 export { assertUtcTimezone } from './timezone.ts'
 export { createDb } from './client.ts'
 export type { Db } from './client.ts'
