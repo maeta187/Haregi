@@ -16,7 +16,10 @@ import { assertUtcTimezone } from './timezone.ts'
 export const createDb = (connectionString: string) => {
   assertUtcTimezone(process.env.TZ)
 
-  const pool = new Pool({ connectionString })
+  // DB セッションのタイムゾーンも UTC に固定する。Node 側だけ UTC にしても、
+  // 認証テーブルの `timestamp DEFAULT now()` は **DB 側のタイムゾーン**で
+  // 壁時計化されるため、DB が JST ならそこでズレが入る(architecture.md §9)
+  const pool = new Pool({ connectionString, options: '-c timezone=UTC' })
 
   return { db: drizzle(pool, { schema }), pool }
 }

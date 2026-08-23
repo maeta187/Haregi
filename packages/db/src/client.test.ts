@@ -33,3 +33,16 @@ describe('DB クライアントの生成', () => {
     },
   )
 })
+
+describe('接続の設定', () => {
+  // Node が UTC でも、DB セッションのタイムゾーンが違えば
+  // `timestamp DEFAULT now()` が別の壁時計で書かれてズレる
+  it('DB セッションのタイムゾーンも UTC に固定する', () => {
+    vi.stubEnv('TZ', 'UTC')
+
+    const { pool } = createDb(connectionString)
+
+    expect(pool.options.options).toContain('timezone=UTC')
+    void pool.end()
+  })
+})
