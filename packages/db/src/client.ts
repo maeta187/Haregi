@@ -2,13 +2,20 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 
 import * as schema from './schema.ts'
+import { assertUtcTimezone } from './timezone.ts'
 
 /**
  * PostgreSQL 接続プールと Drizzle クライアントを作る。
  *
  * プロセス終了時にプールを閉じる責務は呼び出し側(`apps/api` のシャットダウン処理)にある。
+ *
+ * **DB へ時刻を書き読みする唯一の入口としてタイムゾーンを検査する**(architecture.md §9)。
+ * 呼び出し側の責務にすると、api・シード・保守スクリプトのどれか1つが呼び忘れただけで
+ * 迂回でき、認証テーブルの期限カラム(タイムゾーンなし)がローカル時刻で書かれてしまう。
  */
 export const createDb = (connectionString: string) => {
+  assertUtcTimezone(process.env.TZ)
+
   const pool = new Pool({ connectionString })
 
   return { db: drizzle(pool, { schema }), pool }
