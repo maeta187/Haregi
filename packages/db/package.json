@@ -6,8 +6,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:generate": "TZ=UTC drizzle-kit generate",
+    "db:migrate": "TZ=UTC drizzle-kit migrate",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --project tsconfig.json"
   },

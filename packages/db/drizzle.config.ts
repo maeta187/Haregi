@@ -1,5 +1,7 @@
 import { defineConfig } from 'drizzle-kit'
 
+import { assertUtcTimezone } from './src/timezone.ts'
+
 // drizzle-kit は独立したプロセスとして起動するため、リポジトリ直下の .env を自分で読む。
 // CI やコンテナのように .env を置かない環境では、既に渡された環境変数をそのまま使う。
 try {
@@ -11,6 +13,10 @@ try {
     throw error
   }
 }
+
+// 認証テーブルの期限カラムはタイムゾーンを持たないため、マイグレーションも
+// UTC で実行する(architecture.md §9)。設定漏れは黙って通さず、ここで落とす
+assertUtcTimezone(process.env.TZ)
 
 const url = process.env['DATABASE_URL']
 

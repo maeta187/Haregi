@@ -402,14 +402,18 @@ export const auth = betterAuth({
 | `WEB_ORIGIN` | trustedOrigins 用 |
 | `API_PORT` / `API_ORIGIN` | API サーバのポート / rewrites 先 |
 | `LOG_LEVEL` | pino のログレベル(開発: `debug` / 本番: `info` を想定) |
-| `TZ` | Node プロセスのタイムゾーン。**`UTC` 固定**(認証テーブルの期限カラムが tz なしのため。§9 参照) |
+| `TZ` | Node プロセスのタイムゾーン。**`UTC` 固定**(認証テーブルの期限カラムが tz なしのため。§9 参照)。各スクリプトが注入し、起動時に検証する — この表への記載や `.env.example` は実効性を持たない |
 | `STORAGE_ENDPOINT` / `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` | S3 互換ストレージ接続情報(Should: 写真アップロード導入時に追加。ローカルは MinIO を docker-compose に追加) |
 
 ### 日付・タイムゾーン方針
 
 - **暦日**(ユーザーが選ぶ日付)はすべて **JST 基準の `YYYY-MM-DD` 文字列**として扱い、`Date` オブジェクトをモジュール境界(API・DB・コンポーネント間)越しに渡さない
 - 「今日」の判定・upsert キー・気象庁 JSON の `timeDefines`(+09:00)をすべて JST に統一し、サーバーの実行タイムゾーン(UTC 等)に依存した深夜0時前後の日付ズレを排除する
-- **全 Node プロセスを `TZ=UTC` で動かす**(api・シード・マイグレーション・テスト)。認証テーブルの期限カラムは Better Auth CLI 生成物のため `timestamp without time zone` であり(§4)、**Node 側のローカル TZ で解釈される**。書いた時と読む時でプロセスの TZ が違うと期限が前後し、失効済みセッションを通しうる。デプロイ間・複数インスタンス間で TZ が揃う保証はないため、環境変数で固定する。**JST への変換は表示時にのみ行う**(`packages/schema` の日付ユーティリティが担う)
+- **DB に時刻を書き読みする Node プロセスは `TZ=UTC` で動かし、違反したら起動させない**。認証テーブルの期限カラムは Better Auth CLI 生成物のため `timestamp without time zone` であり(§4)、**Node 側のローカル TZ で解釈される**。書いた時と読む時でプロセスの TZ が違うと期限が前後し、失効済みセッションを通しうる。デプロイ間・複数インスタンス間で TZ が揃う保証はない
+  - **列を `timestamptz` に直す案は採らない**。CLI 生成物を手で書き換えることになり、再生成のたびにパッチを当て直す必要がある。**当て忘れると tz なしに戻り、デプロイもテストも通ったままズレが再発して誰も気づかない**。CI も E2E も持たない体制では、静かに壊れる経路を残さないことを優先し、**壊れた設定では動き出せない**方向で守る
+  - 対象は `apps/api` の起動・`scripts/seed.ts`・マイグレーション・**DB に触れるテスト**。各スクリプトに `TZ=UTC` を注入した上で、**起動時に `assertUtcTimezone(process.env.TZ)`(`packages/db`)を呼んで fail-fast する**。`.env.example` はコピー元でしかなく自動では読まれないため、そこに書くだけでは実効性がない
+  - **`packages/schema` の日付ユーティリティのテストは対象外**。意図的に別の TZ で回して JST 判定の正しさを確認するものであり、UTC を強制しない
+  - **JST への変換は表示時にのみ行う**(`packages/schema` の日付ユーティリティが担う)
 - **「暦日」と「絶対時刻」を区別する**。ユーザーが選ぶ日付(コーデの `date`、`GET /api/coordinates` の `from` / `to`)は**暦日**であり、JST の `YYYY-MM-DD` 文字列として扱う(DB は `date` 型・Drizzle は `mode: 'string'`)。一方、予報発表時刻・取得時刻・レコードの作成/更新時刻は**時点を指す絶対時刻**であり、`timestamptz` + `Date` で扱う(§4)。上記の「`Date` を境界越しに渡さない」は**暦日についての規定**であり、絶対時刻まで文字列化することを求めるものではない
 - 日付ユーティリティは `packages/schema` に置き、Vitest の対象とする
 
