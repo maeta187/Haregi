@@ -21,7 +21,9 @@ export const withUtcTimezone = (connectionString: string): string => {
   }
 
   const url = new URL(connectionString)
-  const existing = url.searchParams.get('options')
+  // node-postgres は重複したパラメータの**最後**を採用する。`get()` は最初を返すため、
+  // それを土台にすると実際に効いていた設定を捨てて別の接続設定にしてしまう
+  const existing = url.searchParams.getAll('options').at(-1)
 
   url.searchParams.set(
     'options',

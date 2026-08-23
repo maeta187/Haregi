@@ -30,6 +30,18 @@ describe('接続文字列のタイムゾーン固定', () => {
     expect(normalized).toBe(`${options} -c timezone=UTC`)
   })
 
+  // node-postgres は重複したパラメータの**最後**を採用する。最初を拾うと、
+  // 実際に効いていた設定を捨てて別の接続設定に変えてしまう
+  it('options が重複していたら最後の指定を土台にする', () => {
+    const url =
+      `${base}?options=${encodeURIComponent('-c statement_timeout=5000')}` +
+      `&options=${encodeURIComponent('-c lock_timeout=1000')}`
+
+    expect(optionsOf(withUtcTimezone(url))).toBe(
+      '-c lock_timeout=1000 -c timezone=UTC',
+    )
+  })
+
   it('他のクエリパラメータを残す', () => {
     expect(withUtcTimezone(`${base}?sslmode=require`)).toContain(
       'sslmode=require',
