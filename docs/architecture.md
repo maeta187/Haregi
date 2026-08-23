@@ -413,8 +413,8 @@ export const auth = betterAuth({
   - **列を `timestamptz` に直す案は採らない**。CLI 生成物を手で書き換えることになり、再生成のたびにパッチを当て直す必要がある。**当て忘れると tz なしに戻り、デプロイもテストも通ったままズレが再発して誰も気づかない**。CI も E2E も持たない体制では、静かに壊れる経路を残さないことを優先し、**壊れた設定では動き出せない**方向で守る
   - **検査は `createDb()`(`packages/db`)の内側で行う**。DB へ触れる唯一の入口で接続プールを作る前に `assertUtcTimezone(process.env.TZ)` を呼ぶため、api・シード・保守スクリプトのいずれからでも迂回できない。**呼び出し側の責務にしない** — どれか1つが呼び忘れただけで穴が開くため。drizzle-kit は `createDb()` を通らないので、`drizzle.config.ts` 側でも同じ検査を行う
   - **DB セッションのタイムゾーンも UTC に固定する**。Node 側だけ UTC にしても、`timestamp DEFAULT now()` は **DB 側のタイムゾーン**で壁時計化されるため、DB が JST なら同じズレが入る。接続時に `options: '-c timezone=UTC'` を渡し、データベースの既定値(`ALTER DATABASE ... SET timezone`)より優先されることを確認済み
-  - **接続文字列に `options` を含めることを禁じる**。libpq の `options` は接続時に渡すオプションより**後勝ち**になるため、`DATABASE_URL` に `?options=-c timezone=Asia/Tokyo` を書かれると UTC 固定が黙って外れる。`createDb()` が検出して起動を止める
-  - **drizzle-kit は `createDb()` を通らない**ため、`drizzle.config.ts` が `withUtcTimezone()` で接続 URL 側に UTC を差し込む(仕込まれた `options` は上書きする)。時刻を評価するマイグレーションを将来足したときに同じ問題が再発しないようにする
+  - **接続文字列の `options` は正規化する**(`withUtcTimezone()`)。libpq の `options` は接続時に渡すオプションより**後勝ち**になるため、`DATABASE_URL` に `?options=-c timezone=Asia/Tokyo` を書かれると UTC 固定が黙って外れる。**タイムゾーンの指定だけを取り除き、末尾に `-c timezone=UTC` を置く** — `statement_timeout` やマネージド DB の接続ルーティングといった正当な設定は残す(`options` ごと拒否すると、運用上必要な保護や接続そのものを壊す)
+  - **drizzle-kit は `createDb()` を通らない**ため、`drizzle.config.ts` も同じ `withUtcTimezone()` を通す。時刻を評価するマイグレーションを将来足したときに同じ問題が再発しないようにする
   - 各スクリプト(`apps/api` の起動・`scripts/seed.ts`・マイグレーション・**DB に触れるテスト**)に `TZ=UTC` を注入する。**`.env.example` はコピー元でしかなく自動では読まれない**ため、そこに書くだけでは実効性がない
   - **`packages/schema` の日付ユーティリティのテストは対象外**。意図的に別の TZ で回して JST 判定の正しさを確認するものであり、UTC を強制しない。ただし**親環境の TZ に偶然依存しない**よう、`TZ=UTC` と `TZ=Asia/Tokyo` の明示的なマトリクスで実行する
   - **JST への変換は表示時にのみ行う**(`packages/schema` の日付ユーティリティが担う)
