@@ -71,6 +71,9 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - `user.areaCode` と `coordinate` テーブル(architecture.md §4 の定義どおり。`unique(userId, date)`、**楽観ロック用の `version`(integer・default 1。決定事項 #32)**、気温スナップショット `real` null 可、**由来カラム `areaCode` / `tempStation` / `forecastIssuedAt` / `snapshotStatus`**(決定事項 #30))を追記
 - **`forecast_snapshot` テーブル**(決定事項 #34。`snapshot_id` PK / `area_code` / `forecast_issued_at` / `fetched_at` / `status` / `payload`(jsonb・正規化済み `Forecast`)/ `created_at`)を追加。予報世代を永続化し、プロセス再起動・複数インスタンスでも `snapshotId` を引き当てられるようにする
 - 初回マイグレーション生成・適用(`pnpm db:generate` / `db:migrate`)
+- **絶対時刻は `timestamptz`**(自前定義テーブルのみ。認証テーブルは CLI 生成のまま。architecture.md §4)
+- **`assertUtcTimezone`**(`src/timezone.ts`)を用意し、**`createDb()` の内側**(接続プール生成前)と `drizzle.config.ts` の両方から呼ぶ。`db:generate` / `db:migrate` は `TZ=UTC` で起動する。api 側のスクリプトへの `TZ=UTC` 注入はフェーズ4a
+- テストは **Drizzle のスキーマ定義(`getTableConfig`)を検査する軽量なものに留める**。カラム型・複合一意制約・`version` の既定値・`date` が文字列モードであること・時刻がタイムゾーン付きであることを固定する。**実 DB へマイグレーションを適用して制約の効き目を確かめるのはフェーズ4a**(シードと認証の期限テストで実 DB が必要になる最初のフェーズ。そこで回収する)
 
 ---
 
@@ -97,6 +100,12 @@ DB スキーマも全機能の土台となるため先に確定させる。
 - `src/index.ts`: @hono/node-server(:4000)
 - `scripts/seed.ts`(`auth.api.signUpEmail` 経由で `admin@example.com` / `password123` / `130000`)
 - Vitest: `domain` の検証ロジック単体テスト、認証ミドルウェアの 401 応答
+- Vitest(**フェーズ3からの繰り越し**): **初回マイグレーションを空の PostgreSQL に適用し、DB が不正な状態を実際に拒否すること**。`(userId, date)` の重複 INSERT が一意制約違反になること / ユーザー削除でコーデが cascade 削除されること / **スキーマ定義とマイグレーション SQL がドリフトしていないこと**(`drizzle-kit generate` で差分が出ない)。フェーズ3のテストは Drizzle のメタデータを見るだけで SQL の適用可否も制約の効き目も保証しない。**実 DB はこのフェーズで既に必要**(`scripts/seed.ts` が `auth.api.signUpEmail` 経由でユーザーを作り、下記の認証 TZ テストも DB を使う)ため、ここで回収する
+- **`TZ=UTC` の強制**(architecture.md §9): 認証テーブルの期限カラム(`session.expiresAt` / `verification.expiresAt`)は Better Auth CLI 生成物のためタイムゾーンなしで持つ(architecture.md §4)。`timestamp without time zone` は **Node 側のローカル TZ で解釈される**ため、書いたプロセスと読んだプロセスで `TZ` が違うとその差がそのまま期限のズレになる。**この列を tz 付きに直さない代わりに、UTC 以外のプロセスを起動させない**:
+  - **検査自体はフェーズ3で `createDb()` の内側に入っている**ため、api・シードが `createDb()` を使う限り迂回できない(**DB セッションのタイムゾーンも接続時に UTC へ固定される**)。このフェーズでやるのは**各スクリプトへの `TZ=UTC` の注入**(`dev` / `start` / `scripts/seed.ts` / DB に触れるテスト)で、注入を忘れたら fail-fast で落ちる
+  - Vitest: **タイムゾーンを `Asia/Tokyo` に設定した PostgreSQL に対しても、接続後の `SHOW TimeZone` が `UTC` を返すこと**。DB 側の既定値が何であっても接続の設定が勝つことを、実 DB で固定する。**`createDb()` 経由と drizzle-kit 経由の両方**を対象にする(後者は `createDb()` を通らないため別経路)
+  - **日付ユーティリティのテスト(`packages/schema`)は対象外**。あちらは意図的に別の TZ で回して JST 判定の正しさを確認するものであり、UTC を強制しない
+- Vitest: **`TZ` が `UTC` でないプロセスが起動を拒否されること**。tz なし列を据え置く判断は「全プロセスが UTC である」前提に乗っており、**その前提を守る門番が効いていることがテストの対象**になる(交差 TZ での一致テストは書かない — tz なし列では原理的に9時間ずれるため、通らないテストになる)
 
 ### 4b. apps/web
 

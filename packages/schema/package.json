@@ -6,7 +6,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run --passWithNoTests",
+    "test": "TZ=UTC vitest run --passWithNoTests && TZ=Asia/Tokyo vitest run --passWithNoTests",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {

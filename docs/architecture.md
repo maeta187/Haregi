@@ -7,6 +7,7 @@ Haregi の技術設計。**どう作るか**(スタック・構成・データ�
 - 更新: 2026-08-03(設計レビュー反映: 決定事項 #30〜#32 を追加。気温スナップショットの同一性保証(`snapshotId`)・編集時の維持ポリシー・一括 upsert の楽観ロック。併せてキャッシュの last-known-good / 束ね / バックオフ、Coordinate への由来カラム、写真の所有権・EXIF・孤児掃除を明文化)
 - 更新: 2026-08-18(決定事項 #32 を fail-closed 化(`updatedAt` の省略も 409・条件付き書き込みで TOCTOU 回避・成功時のトークン前進・空入力 item の no-op)。楽観ロックのトークンを `updatedAt` から単調増加する `version` 整数へ変更(時計の同値・逆行に依存しない保証)。決定事項 #33 を追加。認可(所有権)を RLS ではなくサーバー側ロジックで担保する方針を明文化。併せて neverthrow の層境界を明確化: 生成は infrastructure・消費は application、domain は Repository ポートの型注釈のみ、presentation は使用しない)
 - 更新: 2026-08-18(`snapshotId` の耐障害性: 予報世代を **PostgreSQL に永続化**(決定事項 #34。プロセス再起動・複数インスタンスでも引き当てられる)。`snapshotId` が**送られたのに解決できない場合は 409** とし、再取得を要求する(決定事項 #35)。決定事項 #31 の「既存維持」は `snapshotId` の**省略時のみ**に限定した。併せて、stale 応答でも新しい世代を発行する不変条件と、失効を掃除ではなく引き当てクエリの条件で判定することを明記)
+- 更新: 2026-08-22(実装レビュー反映: 自前定義テーブルの絶対時刻を `timestamptz` に統一(失効判定を DB セッションの TZ から独立させる)。`date` は `mode: 'string'` を明示。DB の CHECK 制約・enum を導入しない判断と、その代替である `$type<>()` を §4 に明記。認証テーブルの tz なし列を許容する条件として、**Node プロセスと DB セッションをともに UTC へ固定し、違反時は `createDb()` で fail-fast する**方針を §9 に追加(列を `timestamptz` にする案は、CLI 再生成でパッチが剥がれて静かに壊れるため採らない)。§9 で「暦日」と「絶対時刻」を区別)
 - ステータス: 確定(実装は新リポジトリで行う)
 
 ---
@@ -184,6 +185,11 @@ infrastructure ┘         (domain のインターフェースを実装。依存
 
 ```ts
 // packages/db/src/schema.ts(概略)
+
+// ★ DB の CHECK 制約は導入せず、状態値はこの型で担保する(下記「現行スキーマからの変更点」参照)
+export type SnapshotStatus = 'fresh' | 'stale' | 'unavailable'
+export type ForecastSnapshotStatus = Extract<SnapshotStatus, 'fresh' | 'stale'>
+
 export const user = pgTable('user', {
   id: text('id').primaryKey(),              // Better Auth が生成
   name: text('name').notNull(),             // ユーザー名(表示名・非一意)
@@ -191,6 +197,7 @@ export const user = pgTable('user', {
   emailVerified: boolean('email_verified').notNull().default(false),
   image: text('image'),
   areaCode: text('area_code').notNull(),    // ★ additionalField: 気象庁 府県予報区コード(例 '130000' = 東京都)
+  // 認証テーブルの時刻は Better Auth CLI 生成のまま(タイムゾーンなし)。再生成で戻るため揃えない
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow()
 })
@@ -201,7 +208,7 @@ export const coordinate = pgTable(
   'coordinate',
   {
     id: serial('id').primaryKey(),
-    date: date('date').notNull(),           // ★ 現行モデルに無かった日付カラムを追加
+    date: date('date', { mode: 'string' }).notNull(), // ★ 日付カラムを追加。JST の `YYYY-MM-DD` 文字列で扱う(決定事項 #21)
     outerwear: text('outerwear').notNull().default(''),
     tops: text('tops').notNull().default(''),
     bottoms: text('bottoms').notNull().default(''),
@@ -211,16 +218,16 @@ export const coordinate = pgTable(
     // ★ 気温スナップショットの由来(決定事項 #30)。気温値だけでは後から出どころを説明できないため併せて保存する
     areaCode: text('area_code'),                          // 記録時に画面で表示していた府県予報区コード(気温なしは null)
     tempStation: text('temp_station'),                    // 気温を引いた代表アメダス地点コード(マスタ改訂の影響を切り分ける)
-    forecastIssuedAt: timestamp('forecast_issued_at'),    // 気象庁の予報発表時刻
-    snapshotStatus: text('snapshot_status'),              // 'fresh' | 'stale' | 'unavailable'(取得失敗・予報範囲外は 'unavailable')
+    forecastIssuedAt: timestamp('forecast_issued_at', { withTimezone: true }), // 気象庁の予報発表時刻
+    snapshotStatus: text('snapshot_status').$type<SnapshotStatus>(), // 取得失敗・予報範囲外は 'unavailable'
     userId: text('user_id')
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     // ★ 楽観ロックのトークン(決定事項 #32)。条件付き更新の中で `version = version + 1` する。
     //    wall-clock 値(updatedAt)は精度内の同値・NTP の逆行でトークンとして成立しないため使わない
     version: integer('version').notNull().default(1),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow()  // 監査用。ロックには使わない
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow() // 監査用。ロックには使わない
   },
   (t) => [unique().on(t.userId, t.date)]    // ユーザー×日付で一意
 )
@@ -229,11 +236,11 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
   // ★ 予報世代の永続化(決定事項 #34)。`GET /api/forecast` が発行し、`PUT /api/coordinates` が引き当てる
   snapshotId: text('snapshot_id').primaryKey(),
   areaCode: text('area_code').notNull(),                     // 府県予報区コード
-  forecastIssuedAt: timestamp('forecast_issued_at').notNull(),
-  fetchedAt: timestamp('fetched_at').notNull(),
-  status: text('status').notNull(),                          // 'fresh' | 'stale'
+  forecastIssuedAt: timestamp('forecast_issued_at', { withTimezone: true }).notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+  status: text('status').$type<ForecastSnapshotStatus>().notNull(), // 'unavailable' は世代として発行しない
   payload: jsonb('payload').notNull(),                       // 正規化済み Forecast(気象庁の生 JSON ではない)
-  createdAt: timestamp('created_at').notNull().defaultNow()
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 })
 ```
 
@@ -246,6 +253,9 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
 - パスワードは Better Auth 管理(account テーブルの `password` に scrypt ハッシュ)。現行の bcrypt ハッシュは移行しない(本番ユーザー不在のため)
 - **`forecast_snapshot` テーブルを追加**(決定事項 #34)。予報世代を PostgreSQL に持ち、`GET /api/forecast` が発行した `snapshotId` を `PUT /api/coordinates` から24時間以内に引き当てられるようにする。インメモリキャッシュだけに置くと、プロセス再起動や複数インスタンスで世代を解決できず、画面に出ていた気温と保存値が黙って食い違う。`payload` は**正規化済みの `Forecast`** を入れる(気象庁の生 JSON を DB に残さない。`.agents/rules/jma-forecast.md`)
 - **`version` は同時編集の競合検出に使う**(決定事項 #32)。`PUT /api/coordinates` の各 item に読み込み時の `version` を含め、**不一致または省略**なら 409 を返す。照合は `WHERE ... AND version = ?` の条件付き書き込みで行う(TOCTOU 回避)。**成功した更新では同じ文の中で `version = version + 1` し**、新しい値をレスポンスで返す(前進させないと旧トークンが有効なまま残り、楽観ロックが成立しない)。**`updatedAt` はロックに使わない** — wall-clock 値はカラム精度内で同値になる場合や NTP による逆行で「更新後も旧トークンが一致する」状態を作りうるため。`version` は DB 内のインクリメントで生成され、時計に依存しない
+
+- **自前で定義するテーブルの絶対時刻は `timestamptz`(タイムゾーン付き)で持つ**。`coordinate` の `forecastIssuedAt` / `createdAt` / `updatedAt` と `forecast_snapshot` の3カラムが対象。予報世代の失効判定(`created_at > now() - interval '24 hours'`。決定事項 #34 / #35)を **DB セッションのタイムゾーン設定から独立させる**ため。`timestamp without time zone` のままだと、接続先の `TimeZone` 設定次第で24時間の境界がずれ、「保持は24時間」という保証が環境依存になる。**認証テーブル(user / session / account / verification)はタイムゾーンなしのまま**とし、揃えない — Better Auth CLI の生成物であり、手で書き換えても再生成で戻るため。認証側の期限(`session.expiresAt` / `verification.expiresAt`)は **Better Auth 自身が書き・読む閉じた系統**であり、我々が書く予報世代の失効判定とは独立している。ただしタイムゾーンなしの列は **Node プロセスと DB セッションの両方のタイムゾーンで壁時計化される**ため、混在を許容する条件として **Node と DB セッションをともに UTC へ固定し、違反したプロセスを起動させない**(§9。交差 TZ で一致することのテストは書かない — tz なし列では原理的に成立しないため)
+- **DB の CHECK 制約・enum は導入しない**。`snapshotStatus`(`'fresh' | 'stale' | 'unavailable'`)・`status`(`'fresh' | 'stale'`)・`version >= 1` はいずれも DB 制約で固定できるが、初回リリースでは**型(Drizzle の `$type<>()` / Zod / TypeScript)とサーバー側ロジックで担保する**。理由は (a) これらの値を書くのは `apps/api` の単一経路のみで、クライアントから直接 DB に届かない (b) 状態値の追加(例: `'partial'`)のたびにマイグレーションが必要になる、の2点。**代わりにテストで固定する**(`.agents/rules/testing.md`)。将来 DB へ直接触れる経路が増える場合(決定事項 #33 の再検討条件と同じ)は、併せて CHECK 制約の追加を検討する
 
 マイグレーションは drizzle-kit(`drizzle-kit generate` / `migrate`)で管理する。
 
@@ -392,12 +402,23 @@ export const auth = betterAuth({
 | `WEB_ORIGIN` | trustedOrigins 用 |
 | `API_PORT` / `API_ORIGIN` | API サーバのポート / rewrites 先 |
 | `LOG_LEVEL` | pino のログレベル(開発: `debug` / 本番: `info` を想定) |
+| `TZ` | Node プロセスのタイムゾーン。**`UTC` 固定**(認証テーブルの期限カラムが tz なしのため。§9 参照)。各スクリプトが注入し、起動時に検証する — この表への記載や `.env.example` は実効性を持たない |
 | `STORAGE_ENDPOINT` / `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` | S3 互換ストレージ接続情報(Should: 写真アップロード導入時に追加。ローカルは MinIO を docker-compose に追加) |
 
 ### 日付・タイムゾーン方針
 
-- 日付はすべて **JST 基準の `YYYY-MM-DD` 文字列**として扱い、`Date` オブジェクトをモジュール境界(API・DB・コンポーネント間)越しに渡さない
+- **暦日**(ユーザーが選ぶ日付)はすべて **JST 基準の `YYYY-MM-DD` 文字列**として扱い、`Date` オブジェクトをモジュール境界(API・DB・コンポーネント間)越しに渡さない
 - 「今日」の判定・upsert キー・気象庁 JSON の `timeDefines`(+09:00)をすべて JST に統一し、サーバーの実行タイムゾーン(UTC 等)に依存した深夜0時前後の日付ズレを排除する
+- **DB に時刻を書き読みする Node プロセスは `TZ=UTC` で動かし、違反したら起動させない**。認証テーブルの期限カラムは Better Auth CLI 生成物のため `timestamp without time zone` であり(§4)、**Node 側のローカル TZ で解釈される**。書いた時と読む時でプロセスの TZ が違うと期限が前後し、失効済みセッションを通しうる。デプロイ間・複数インスタンス間で TZ が揃う保証はない
+  - **列を `timestamptz` に直す案は採らない**。CLI 生成物を手で書き換えることになり、再生成のたびにパッチを当て直す必要がある。**当て忘れると tz なしに戻り、デプロイもテストも通ったままズレが再発して誰も気づかない**。CI も E2E も持たない体制では、静かに壊れる経路を残さないことを優先し、**壊れた設定では動き出せない**方向で守る
+  - **検査は `createDb()`(`packages/db`)の内側で行う**。DB へ触れる唯一の入口で接続プールを作る前に `assertUtcTimezone(process.env.TZ)` を呼ぶため、api・シード・保守スクリプトのいずれからでも迂回できない。**呼び出し側の責務にしない** — どれか1つが呼び忘れただけで穴が開くため。drizzle-kit は `createDb()` を通らないので、`drizzle.config.ts` 側でも同じ検査を行う
+  - **DB セッションのタイムゾーンも UTC に固定する**。Node 側だけ UTC にしても、`timestamp DEFAULT now()` は **DB 側のタイムゾーン**で壁時計化されるため、DB が JST なら同じズレが入る。実現方法は接続文字列の正規化(`withUtcTimezone()`)で、データベースの既定値(`ALTER DATABASE ... SET timezone`)より優先されることを実 DB で確認済み
+  - **`options` の末尾に `-c timezone=UTC` を置くだけにし、既存の指定は削らない**。libpq の `options` は**後勝ち**なので、`DATABASE_URL` に `?options=-c timezone=Asia/Tokyo` が仕込まれていても末尾の指定が効く。逆に文字列置換で消しにかかると、`options` が `-c name=value` / `-cname=value` / `--name=value` を取り値に任意の文字列が入りうるため、`-c application_name=worker-ctimezone=foo` のような**正当な値を壊す一方で長形式は取りこぼす**。`statement_timeout` やマネージド DB の接続ルーティングもそのまま残る
+  - **`createDb()` と `drizzle.config.ts` が同じ `withUtcTimezone()` を通す**(drizzle-kit は `createDb()` を経由しないため)。時刻を評価するマイグレーションを将来足したときに同じ問題が再発しないようにする
+  - 各スクリプト(`apps/api` の起動・`scripts/seed.ts`・マイグレーション・**DB に触れるテスト**)に `TZ=UTC` を注入する。**`.env.example` はコピー元でしかなく自動では読まれない**ため、そこに書くだけでは実効性がない
+  - **`packages/schema` の日付ユーティリティのテストは対象外**。意図的に別の TZ で回して JST 判定の正しさを確認するものであり、UTC を強制しない。ただし**親環境の TZ に偶然依存しない**よう、`TZ=UTC` と `TZ=Asia/Tokyo` の明示的なマトリクスで実行する
+  - **JST への変換は表示時にのみ行う**(`packages/schema` の日付ユーティリティが担う)
+- **「暦日」と「絶対時刻」を区別する**。ユーザーが選ぶ日付(コーデの `date`、`GET /api/coordinates` の `from` / `to`)は**暦日**であり、JST の `YYYY-MM-DD` 文字列として扱う(DB は `date` 型・Drizzle は `mode: 'string'`)。一方、予報発表時刻・取得時刻・レコードの作成/更新時刻は**時点を指す絶対時刻**であり、`timestamptz` + `Date` で扱う(§4)。上記の「`Date` を境界越しに渡さない」は**暦日についての規定**であり、絶対時刻まで文字列化することを求めるものではない
 - 日付ユーティリティは `packages/schema` に置き、Vitest の対象とする
 
 ### バージョン管理方針
