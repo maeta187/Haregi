@@ -1,0 +1,26 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "dev": {
+      "passThroughEnv": [
+        "API_PORT",
+        "API_ORIGIN",
+        "DATABASE_URL",
+        "BETTER_AUTH_URL",
+        "BETTER_AUTH_SECRET",
+        "WEB_ORIGIN",
+        "LOG_LEVEL"
+      ]
+    },
+    "test": {
+      "cache": false,
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "BETTER_AUTH_URL",
+        "BETTER_AUTH_SECRET",
+        "WEB_ORIGIN",
+        "LOG_LEVEL"
+      ]
+    }
+  }
+}

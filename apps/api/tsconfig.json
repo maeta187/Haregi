@@ -7,8 +7,10 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "outDir": "dist",
-    "rootDir": "src",
+    // 実 DB テストが packages/db の本番 drizzle.config.ts を直接検証する。
+    // emit 時の rootDir は tsconfig.build.json で src に限定する。
+    "rootDir": "../..",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts"]
 }

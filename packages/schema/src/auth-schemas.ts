@@ -3,12 +3,16 @@ import { z } from 'zod'
 import { findArea } from './areas.ts'
 
 const emailSchema = z.string().email('メールアドレスの形式が正しくありません')
-const passwordSchema = z
+// Better Auth の hook は文字種、Better Auth 本体は長さを検証する。
+// フロントの signupSchema は両方を合わせて使う。
+export const passwordCharactersSchema = z
   .string()
-  .min(8, 'パスワードは8文字以上で入力してください')
-  .max(20, 'パスワードは20文字以内で入力してください')
   .regex(/[a-z]/, 'パスワードには小文字の英字を含めてください')
   .regex(/\d/, 'パスワードには数字を含めてください')
+
+const passwordSchema = passwordCharactersSchema
+  .min(8, 'パスワードは8文字以上で入力してください')
+  .max(20, 'パスワードは20文字以内で入力してください')
 
 export const signupSchema = z.object({
   name: z

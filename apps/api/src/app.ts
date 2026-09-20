@@ -1,11 +1,30 @@
-import { Hono } from 'hono'
+import { createRoute, z } from '@hono/zod-openapi'
+import { auth } from './features/auth/infrastructure/auth.ts'
+import { authRoutes } from './features/auth/presentation/routes.ts'
+import type { AuthEnv } from './features/auth/presentation/session.ts'
+import { createOpenApiApp } from './shared/openapi.ts'
 
-/**
- * 各 feature の presentation ルータはフェーズ4以降でここへマウントする。
- * 現時点はヘルスチェックのみを持つ骨格。
- */
-export const app = new Hono().get('/api/health', (c) =>
-  c.json({ status: 'ok' }),
-)
+export const createApp = (provider: Pick<typeof auth, 'handler'> = auth) =>
+  createOpenApiApp<AuthEnv>()
+    .openapi(
+      createRoute({
+        method: 'get',
+        path: '/api/health',
+        responses: {
+          200: {
+            description: '稼働確認',
+            content: {
+              'application/json': {
+                schema: z.object({ status: z.literal('ok') }),
+              },
+            },
+          },
+        },
+      }),
+      (c) => c.json({ status: 'ok' as const }, 200),
+    )
+    .route('/', authRoutes(provider))
+
+export const app = createApp()
 
 export type AppType = typeof app

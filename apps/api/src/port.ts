@@ -1,8 +1,7 @@
 const DEFAULT_API_PORT = 4000
 
 /**
- * API の待受ポートを決める。`.env` の読み込みはフェーズ4以降で導入するため、
- * 現時点では process.env から渡された値をそのまま解釈する。
+ * API の待受ポートを決める。環境変数は起動スクリプトで .env を読み込んでから渡す。
  */
 export function resolveApiPort(value: string | undefined): number {
   if (value === undefined || value === '') {
