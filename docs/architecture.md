@@ -276,6 +276,7 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
 ### 設計原則
 
 - セッション判定は `presentation` 層のミドルウェアで `auth.api.getSession({ headers })` を実行し、`c.get('user')` に格納。未認証は 401
+- **クライアント IP の信頼境界を入口(`shared/client-ip.ts`)で確定する**。TCP の接続元を基準とし、`X-Forwarded-For` は接続元が `TRUSTED_PROXY_IPS` に含まれるときだけ右から遡って採用する。確定値は内部ヘッダー(`x-haregi-client-ip`)に載せ替えて Better Auth に渡し(`advanced.ipAddress.ipAddressHeaders`)、申告ヘッダー(`X-Forwarded-For` / `X-Real-IP`)は委譲前に落とす。既定のまま `X-Forwarded-For` を読ませると、クライアントが値を変えるだけでレート制限の bucket を分けられ、ログイン総当たり対策が迂回できるため
 - **認可(所有権)は RLS ではなくサーバー側ロジックで担保する**(決定事項 #33)。`userId` はセッションからのみ得て、所有者条件を `infrastructure` 層の Repository の内側に閉じ込める。他人のリソースと不存在は区別せず 404 に統一する
 - **レイヤーと エラーハンドリング(neverthrow)**: 外部 I/O(気象庁 JSON 取得・Drizzle・S3)は `infrastructure` 層で `ResultAsync` にラップし、型付きエラー(例: `FetchError | ParseError | UnknownAreaError | DbError`)として返す。`application` 層のユースケースがこれを `.match()` 等で処理し、失敗時は型付きアプリケーションエラーを throw する(neverthrow を層の外へ持ち出さない)。`presentation` 層(ルートハンドラ)は throw されたエラーを `shared/http-errors.ts` の共通マッピングで HTTP ステータス(400 / 401 / 502 等)へ網羅的に変換し、例外を Hono フレームワーク層に漏らさない。気象庁取得にはタイムアウト(`AbortSignal.timeout`)と軽量なリトライを infrastructure 層で併用する
 - リクエストボディは `@hono/zod-validator` + `packages/schema` の Zod スキーマで検証(フロントと同一スキーマ)。`items` の件数上限(最大7件)・**リクエスト内の日付重複(400)・実在する暦日であること・保存可能範囲(今日から前後1年)**もここで強制する
@@ -402,6 +403,7 @@ export const auth = betterAuth({
 | `WEB_ORIGIN` | trustedOrigins 用 |
 | `API_PORT` / `API_ORIGIN` | API サーバのポート / rewrites 先 |
 | `LOG_LEVEL` | pino のログレベル(開発: `debug` / 本番: `info` を想定) |
+| `TRUSTED_PROXY_IPS` | api の手前に立つプロキシの IP / CIDR(カンマ区切り)。**ここに載っている接続元から届いた `X-Forwarded-For` だけ**を信用してクライアント IP を決める(未設定なら TCP の接続元のみ)。Better Auth のレート制限の bucket がこの IP で分かれる。開発は Vite dev proxy が同一ホストのため `127.0.0.1,::1`(転送先 `http://localhost:4000` は環境によって `::1` に解決されるため両方) |
 | `TZ` | Node プロセスのタイムゾーン。**`UTC` 固定**(認証テーブルの期限カラムが tz なしのため。§9 参照)。各スクリプトが注入し、起動時に検証する — この表への記載や `.env.example` は実効性を持たない |
 | `STORAGE_ENDPOINT` / `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` | S3 互換ストレージ接続情報(Should: 写真アップロード導入時に追加。ローカルは MinIO を docker-compose に追加) |
 

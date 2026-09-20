@@ -39,3 +39,41 @@ it.each(['Asia/Tokyo', undefined])(
     ).toThrow(/TZ=UTC/)
   },
 )
+
+it.each(['dev', 'test'])(
+  '%s タスクは TRUSTED_PROXY_IPS を turbo 越しにも保持する',
+  (task) => {
+    // turbo は strict モードで、宣言しない環境変数をタスクへ渡さない。
+    // pnpm dev / pnpm test の実行経路でシェルの信頼プロキシ設定が消えないこと
+    const dryRun = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          '../../node_modules/turbo/bin/turbo',
+          'run',
+          task,
+          '--filter=@haregi/api',
+          '--dry=json',
+        ],
+        {
+          env: { ...process.env, TRUSTED_PROXY_IPS: '192.0.2.1' },
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 60_000,
+        },
+      ),
+    ) as {
+      tasks: {
+        taskId: string
+        environmentVariables: { passthrough: string[] | null }
+      }[]
+    }
+    const target = dryRun.tasks.find(
+      (entry) => entry.taskId === `@haregi/api#${task}`,
+    )
+    expect(target?.environmentVariables.passthrough ?? []).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^TRUSTED_PROXY_IPS=/)]),
+    )
+  },
+  60_000,
+)

@@ -30,6 +30,7 @@
 - [ ] readiness / health check エンドポイントがある(DB 接続を含めて判定する)
 - [ ] **本番でシードのテストユーザー(`admin@example.com`)が作られない**仕組みになっている(`pnpm db:seed` を本番で実行しない、または環境変数でガードする)
 - [ ] `LOG_LEVEL` が本番向け(`info`)に設定されている
+- [ ] **`TRUSTED_PROXY_IPS` が本番の前段プロキシと一致している**(架空の値・広すぎる CIDR を入れない)。前段が `X-Forwarded-For` を付けることと、クライアントが `X-Forwarded-For` を変えてもログインのレート制限(429)が迂回できないことを本番相当の経路で1度確認する([architecture.md §5](./architecture.md))
 - [ ] **`TZ=UTC` の強制が実行経路で効いている**(api・シード・マイグレーション)。認証テーブルの期限カラムがタイムゾーンなしのため、プロセス間で TZ がずれるとセッションの期限判定が前後する([architecture.md §9](./architecture.md))。**環境変数の設定を目視するだけでなく、`TZ` を UTC 以外にしたプロセスが実際に起動を拒否されることを本番相当の環境で1度確認する**。併せて、**接続後の `SHOW TimeZone` が `UTC` を返すこと**も確認する(マネージド DB は既定のタイムゾーンが UTC とは限らない)
 - [ ] 気象庁の地域マスタ検証(`apps/api/scripts/validate-areas.ts`)を実行し、全58区分が通る
 

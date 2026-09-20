@@ -18,6 +18,19 @@ dev / start は既存と同じ Node の TypeScript 型ストリッピング方�
 パスワード変更のサーバー側検証は `hooks.before` に集約する。
 後続の保護ルートでは `sessionMiddleware(auth.api)` を適用し、
 `c.get('user')` を利用する。未認証は 401。
+クライアント IP の信頼境界は `src/shared/client-ip.ts` が入口で確定する。
+基準は TCP の接続元で、`X-Forwarded-For` は接続元が `TRUSTED_PROXY_IPS`
+(IP / CIDR のカンマ区切り)のときだけ右から遡って採用する。確定値は
+内部ヘッダー `x-haregi-client-ip` へ載せ替え、Better Auth のレート制限は
+これだけを読む(`advanced.ipAddress.ipAddressHeaders`)。申告ヘッダーは
+委譲前に落とすため、値を変えて 429 を回避することはできない。
+開発は Vite dev proxy が `xfwd` で XFF を付けるため loopback を設定する。
+転送先は `http://localhost:4000` で、`node:dns` が `localhost` を `::1` に
+解決する環境では接続元が `::1` になるため、`127.0.0.1,::1` の両方を入れる
+(片方だけだと全員が1つの bucket に潰れ、レート制限が共有される)。
+`TRUSTED_PROXY_IPS` は `apps/api/turbo.json` の dev / test で素通しする
+(turbo は strict モードで、指定しない環境変数はタスクへ渡らない)。
+
 `/api/doc` は Swagger UI、`/api/openapi.json` は Hono 側の OpenAPI 定義。
 Better Auth が所有する認証 API の仕様を手書きで二重管理しない。
 

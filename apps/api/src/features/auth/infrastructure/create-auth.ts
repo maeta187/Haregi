@@ -3,6 +3,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
 
+import { CLIENT_IP_HEADER } from '../../../shared/client-ip.ts'
 import {
   validateSignup,
   validateUpdateUser,
@@ -34,6 +35,10 @@ export function createAuth(db: Db, config: AuthConfig) {
         areaCode: { type: 'string', required: true, input: true },
       },
     },
+    // 入口(`shared/client-ip.ts`)が確定した IP だけを読む。
+    // 既定の `x-forwarded-for` はクライアントの自己申告で、bucket を分けて
+    // レート制限を迂回できるため信用しない。
+    advanced: { ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] } },
     rateLimit: { enabled: true },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {

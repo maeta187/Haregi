@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { CLIENT_IP_HEADER } from '../../../shared/client-ip.ts'
 import { createTestDatabase } from '../../../test/database.ts'
 import { createAuth } from './create-auth.ts'
 
@@ -67,7 +68,9 @@ describe('Better Auth の会員登録', () => {
         headers: {
           'content-type': 'application/json',
           origin: 'http://localhost:3000',
-          'x-forwarded-for': `192.0.2.${++client}`,
+          // 入口が確定した IP を載せる内部ヘッダー(`x-forwarded-for` は
+          // 信用されないため、ここで bucket を分けるにはこちらを使う)
+          [CLIENT_IP_HEADER]: `192.0.2.${++client}`,
         },
         body: JSON.stringify({
           name: '晴れ',
