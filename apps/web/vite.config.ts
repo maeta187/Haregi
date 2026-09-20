@@ -17,6 +17,9 @@ export default defineConfig({
       '/api': {
         target: API_ORIGIN,
         changeOrigin: true,
+        // 実クライアント IP を X-Forwarded-For に積む。api 側はこの proxy を
+        // TRUSTED_PROXY_IPS に入れて初めて採用する(入口の信頼境界)
+        xfwd: true,
       },
     },
   },

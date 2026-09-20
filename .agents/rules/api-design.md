@@ -4,6 +4,7 @@
 - セッション判定は `presentation` 層のミドルウェアで `auth.api.getSession({ headers })` を実行し `c.get('user')` に格納。未認証は 401
 - Better Auth は `/api/auth/*` にマウント。会員登録はフロントの `authClient.signUp.email({ email, password, name, areaCode })` の1回で完結させる(自前の signup API を作らない)
 - 保護ルート(`/forecast` 等)は TanStack Router の `beforeLoad` でセッション確認し、未認証は `/login` へリダイレクト
+- **クライアント IP は入口(`shared/client-ip.ts`)で確定する**。基準は TCP の接続元で、`X-Forwarded-For` は接続元が `TRUSTED_PROXY_IPS`(IP / CIDR のカンマ区切り)に含まれるときだけ右から遡って採用する。確定値は内部ヘッダー `x-haregi-client-ip` に載せ替え、Better Auth には `advanced.ipAddress.ipAddressHeaders` でこれだけを読ませる。委譲前に `X-Forwarded-For` / `X-Real-IP` は落とす。既定のまま `X-Forwarded-For` を信用すると、値を変えるだけでレート制限の bucket を分けられ総当たり対策が迂回できる。逆に IP を解決できないと全ユーザーが1つの bucket を共有するため、プロキシ越しの構成では `TRUSTED_PROXY_IPS` の設定と proxy 側の XFF 付与(dev は Vite の `xfwd`)をセットで用意する。loopback は **IPv4 / IPv6 の両方**(`127.0.0.1,::1`)を入れる — 転送先 `http://localhost:4000` が `::1` に解決される環境では接続元が `::1` になり、IPv4 だけの指定では全員が1つの bucket に潰れるため
 
 ## レイヤー構成(軽量オニオン・機能優先。決定事項 #26)
 

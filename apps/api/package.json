@@ -3,14 +3,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --project tsconfig.json --noEmit false",
-    "dev": "node src/index.ts",
-    "test": "vitest run --passWithNoTests",
+    "build": "tsc --project tsconfig.build.json",
+    "dev": "TZ=UTC node --env-file-if-exists=../../.env src/index.ts",
+    "start": "TZ=UTC node --env-file-if-exists=../../.env src/index.ts",
+    "db:seed": "TZ=UTC node --env-file-if-exists=../../.env scripts/seed.ts",
+    "test": "TZ=UTC node --env-file-if-exists=../../.env ../../node_modules/vitest/vitest.mjs run",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
+    "@haregi/db": "workspace:*",
+    "@haregi/schema": "workspace:*",
     "@hono/node-server": "latest",
-    "hono": "^4.0.0"
+    "@hono/swagger-ui": "^0.6.1",
+    "@hono/zod-openapi": "^1.6.3",
+    "better-auth": "1.7.1",
+    "hono": "^4.0.0",
+    "neverthrow": "^8.2.0",
+    "pino": "^10.3.1"
   },
   "devDependencies": {
     "@types/node": "latest",

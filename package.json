@@ -7,7 +7,7 @@
     "dev": "turbo run dev",
     "db:generate": "pnpm --filter @haregi/db db:generate",
     "db:migrate": "pnpm --filter @haregi/db db:migrate",
-    "db:seed": "pnpm --filter @haregi/db db:seed",
+    "db:seed": "pnpm --filter @haregi/api db:seed",
     "lint": "oxlint apps packages",
     "format": "oxfmt --write package.json pnpm-workspace.yaml turbo.json tsconfig.base.json oxlint.config.ts .oxfmtrc.json apps packages",
     "typecheck": "turbo run typecheck",

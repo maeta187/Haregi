@@ -9,6 +9,8 @@ describe('vite.config', () => {
     expect(proxy?.['/api']).toMatchObject({
       target: 'http://localhost:4000',
       changeOrigin: true,
+      // api 側が実クライアント IP を解決できるようにする(レート制限の bucket)
+      xfwd: true,
     })
   })
 
