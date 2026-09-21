@@ -1,3 +1,6 @@
+// vite.config.ts は Node の API(import.meta.url からのパス解決)を使うため、
+// jsdom ではなく node 環境で読み込む
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 
 import config from './vite.config.ts'

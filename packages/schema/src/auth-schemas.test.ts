@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { loginSchema, signupSchema } from '@haregi/schema'
+import { loginSchema, signupFormSchema, signupSchema } from '@haregi/schema'
 
 const validSignup = {
   name: 'ハレギ太郎',
@@ -109,6 +109,41 @@ describe('loginSchema', () => {
         email: 'user@example.com',
         password: '',
       }).success,
+    ).toBe(false)
+  })
+})
+
+describe('signupFormSchema', () => {
+  const validForm = { ...validSignup, passwordConfirm: validSignup.password }
+
+  it('パスワードと確認が一致する入力を受理する', () => {
+    expect(signupFormSchema.safeParse(validForm).success).toBe(true)
+  })
+
+  it('パスワードと確認が一致しない入力を拒否する', () => {
+    const result = signupFormSchema.safeParse({
+      ...validForm,
+      passwordConfirm: 'password2',
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const issue = result.error.issues.find(
+        (candidate) => candidate.path[0] === 'passwordConfirm',
+      )
+      expect(issue?.message).toBe('パスワードが一致しません')
+    }
+  })
+
+  it('確認が空の入力を拒否する', () => {
+    expect(
+      signupFormSchema.safeParse({ ...validForm, passwordConfirm: '' }).success,
+    ).toBe(false)
+  })
+
+  it('signupSchema の検証(登録地域の実在)も引き継ぐ', () => {
+    expect(
+      signupFormSchema.safeParse({ ...validForm, areaCode: '999999' }).success,
     ).toBe(false)
   })
 })

@@ -34,3 +34,18 @@ export const loginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1, 'パスワードを入力してください'),
 })
+
+/**
+ * 会員登録フォーム用のスキーマ。
+ *
+ * パスワード確認はサーバーへ送らない UX 用の項目のため(specification.md §4)、
+ * サーバー側検証に使う `signupSchema` とは分けて定義する。
+ */
+export const signupFormSchema = signupSchema
+  .extend({
+    passwordConfirm: z.string().min(1, 'パスワード(確認)を入力してください'),
+  })
+  .refine((values) => values.password === values.passwordConfirm, {
+    message: 'パスワードが一致しません',
+    path: ['passwordConfirm'],
+  })

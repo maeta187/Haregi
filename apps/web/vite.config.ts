@@ -1,5 +1,7 @@
+import tailwindcss from '@tailwindcss/vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
 import { resolveApiOrigin } from './api-origin.ts'
@@ -8,6 +10,12 @@ import { resolveApiOrigin } from './api-origin.ts'
 const API_ORIGIN = resolveApiOrigin(process.env)
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // shadcn/ui の取り込み先(src/components/ui)を含む src 配下のエイリアス
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   server: {
     port: 3000,
     strictPort: true,
@@ -24,6 +32,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    tailwindcss(),
     tanstackStart(),
     // react の vite プラグインは start のプラグインより後に置く
     viteReact(),
