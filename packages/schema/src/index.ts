@@ -2,6 +2,7 @@ export { areas, findArea, resolveForecastCode } from './areas.ts'
 export type { Area, AreaCode } from './areas.ts'
 export {
   loginSchema,
+  signupFormSchema,
   signupSchema,
   passwordCharactersSchema,
 } from './auth-schemas.ts'

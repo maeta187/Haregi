@@ -37,5 +37,7 @@ export default defineConfig({
     'react/exhaustive-deps': 'warn',
     ...reactHooksJsRules,
   },
-  ignorePatterns: ['dist/'],
+  // shadcn/ui の取り込み先は生成物であり原則手を入れない(ui-web.md)ため、
+  // lint の対象外にする。routeTree.gen.ts も TanStack Router の生成物
+  ignorePatterns: ['dist/', 'apps/web/src/components/ui/', 'routeTree.gen.ts'],
 })

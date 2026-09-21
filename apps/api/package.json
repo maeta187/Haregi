@@ -2,6 +2,9 @@
   "name": "@haregi/api",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/app.ts"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "dev": "TZ=UTC node --env-file-if-exists=../../.env src/index.ts",
