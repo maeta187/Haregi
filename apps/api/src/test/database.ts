@@ -26,6 +26,16 @@ export async function createTestDatabase() {
     throw error
   }
   const connection = createDb(url.toString())
+  // pg-pool の end() は複数の idle 接続の socket 終了より先に解決しうる。
+  // DROP DATABASE (FORCE) が残る接続を強制切断しないよう、各 end イベントまで待つ。
+  const disconnects = new Set<Promise<void>>()
+  connection.pool.on('connect', (client) => {
+    const disconnected = new Promise<void>((resolve) => {
+      client.once('end', resolve)
+    })
+    disconnects.add(disconnected)
+    void disconnected.then(() => disconnects.delete(disconnected))
+  })
   return {
     ...connection,
     url: url.toString(),
@@ -40,6 +50,7 @@ export async function createTestDatabase() {
     },
     async close() {
       await connection.pool.end()
+      await Promise.all(disconnects)
       try {
         await admin.pool.query(`DROP DATABASE "${name}" WITH (FORCE)`)
       } finally {
