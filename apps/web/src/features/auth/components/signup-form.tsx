@@ -3,7 +3,7 @@ import { signupFormSchema, signupSchema } from '@haregi/schema'
 import { useForm } from 'react-hook-form'
 import type { z } from 'zod'
 
-import { AreaSelect } from './area-select.tsx'
+import { AreaSelect } from '@/components/area-select.tsx'
 import { FormError } from './form-error.tsx'
 import { Button } from '@/components/ui/button'
 import {

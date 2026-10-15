@@ -49,3 +49,9 @@ export const shiftJstYear = (date: string, years: number): string => {
 
   return `${year}-${padTwoDigits(month)}-${padTwoDigits(Math.min(day, lastDay))}`
 }
+
+/** 予報の発表時刻(絶対時刻)を、実行環境によらずJSTで表示する。 */
+export const formatJstDateTime = (iso: string): string => {
+  const jst = new Date(new Date(iso).getTime() + JST_OFFSET_MILLISECONDS)
+  return `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日 ${jst.getUTCHours()}時${padTwoDigits(jst.getUTCMinutes())}分`
+}
