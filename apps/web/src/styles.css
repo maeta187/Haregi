@@ -128,3 +128,28 @@
     @apply font-sans;
   }
 }
+
+/* 狭い表示領域では日付ごとの縦積み。列見出しは読み上げ用に残す。 */
+@container (width < 600px) {
+  .forecast-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .forecast-table,
+  .forecast-table tbody,
+  .forecast-table tbody tr,
+  .forecast-table tbody th,
+  .forecast-table tbody td {
+    display: block;
+  }
+  .forecast-table tbody tr {
+    padding-block: 0.75rem;
+  }
+  .forecast-table tbody th {
+    height: auto;
+    padding-block: 0.5rem;
+  }
+}

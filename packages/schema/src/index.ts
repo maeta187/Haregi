@@ -7,5 +7,10 @@ export {
   passwordCharactersSchema,
 } from './auth-schemas.ts'
 export { coordinatesUpsertSchema } from './coordinates-schema.ts'
-export { formatJstDate, isValidJstDate, todayJst } from './date.ts'
+export {
+  formatJstDateTime,
+  formatJstDate,
+  isValidJstDate,
+  todayJst,
+} from './date.ts'
 export { formatTemperature } from './temperature.ts'

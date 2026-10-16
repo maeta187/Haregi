@@ -6,6 +6,7 @@
 - 更新: 2026-08-03(設計レビュー反映: 最小履歴フェーズ(6c)と公開前ゲート(フェーズ8)を追加。気温スナップショットのテスト要件を明記)
 - 更新: 2026-08-18(予報世代を PostgreSQL に永続化し(決定事項 #34)、解決できない `snapshotId` を 409 とする(決定事項 #35)。フェーズ3に `forecast_snapshot` を追加)
 - 更新: 2026-08-18(フェーズ6a のテスト要件に所有権(認可)のケースを追加(決定事項 #33)。併せて楽観ロックを fail-closed 化し、トークンを単調増加する `version` 整数へ変更。条件付き書き込み・省略/並行更新のテストを追加(決定事項 #32))
+- 更新: 2026-10-15(フェーズ5b の実装方針と手順を具体化: `AreaSelect` の共有化・表示地域の URL 保持・SSR で予報を取得しない・旧地域データの非流用・代表地点の文言表示)
 - 更新: 2026-08-07(フェーズ1のスコープを改定: ツールチェーンが実際に機能することを確認するため、疎通の骨格スタブとそのテストを含める。従来の「機能コードを一切含めない」から変更)
 - スコープ: Must 機能(初回リリース)まで。**最小履歴(`/history` 直近30件)は Must へ昇格したため本プランに含む**(フェーズ6c)。その他の Should 機能(履歴の拡張・設定・削除・天気アイコン・写真アップロード)は本プランの対象外(後続で順次追加)
 - 要件は [specification.md](./specification.md)、技術設計は [architecture.md](./architecture.md) を参照
@@ -139,9 +140,32 @@ DB スキーマも全機能の土台となるため先に確定させる。
 
 ### 5b. apps/web
 
-- `/forecast` 画面の予報表示部: 週間気温予報(最高/最低)・地域切替セレクタ・**「出典: 気象庁ホームページ」常時表示**・取得失敗時のエラー表示 + 再試行ボタン(TanStack Query の stale データがあれば表示)
-- レイアウトは先行してダミーデータで組んでもよいが、`GET /api/forecast` 完成後は実データに結線し、502 時の表示を実際に確認する
-- Vitest(Testing Library): 出典表記が常時表示されること、地域切替セレクタでの表示切り替え、取得失敗時のエラー表示 + 再試行ボタンの挙動
+**スコープ**: `/forecast` の予報表示部(週間の最高/最低気温・地域切替・発表時刻と鮮度・代表地点の明示・取得失敗時のエラー表示 + 再試行・出典表記)。コーデ入力と `snapshotId` の送信はフェーズ6b(フックは `snapshotId` を返せる形にしておく)。天気アイコン・降水確率は Should のため含めない。
+
+**方針(実装前に確定した判断)**
+
+- **`AreaSelect` を `features/auth/components/` から `src/components/area-select.tsx` へ移す**。forecast から auth を参照すると features 間の横断参照(`ui-web.md` で禁止。例外は `coordinate → forecast` のみ)になるため。挙動は変えず、既存の signup テストが通ることで移動を確認する
+- **表示中の地域は URL の search param `?area=` に持つ**(`validateSearch` でマスタ照合し、不正値は捨てて登録地域へフォールバック)。省略時はセッションの登録地域。登録地域は書き換えない。再読み込みで地域が保たれ、二拠点利用([persona.md](./persona.md))に合う
+- **SSR では予報を取得しない**。`hc('/')` は相対 URL のためサーバーで解決できない(フェーズ4b の SSR セッション問題と同じ)。`useQuery` は SSR で fetch しないので、サーバーはローディングを描き、クライアントで取得する。SSR プリフェッチは見送る(初回表示の LCP が問題になった時点で、4b と同じサーバー関数方式で検討する)
+- **地域切替直後に旧地域の予報を表示しない**(`placeholderData` で前の地域を流用しない。地域と気温が食い違って見えるため)。stale データとして表示するのは、同一 query key の再取得に失敗した場合のみ
+- **代表地点は文言で明示する**(「地域の代表地点(アメダス)の予報」。spec §5 の許容表現)。地点名のマスタは持たないため、`tempStation` の地点名表示はスコープ外とする
+
+**実装順(すべて TDD)**
+
+1. `packages/schema`: 発表時刻の整形 `formatJstDateTime(iso)`(例: `2026年10月11日 11時00分`)を追加。テストは `TZ=UTC` / `TZ=Asia/Tokyo` のマトリクスで、UTC 15:00 = JST 翌日0時の境界を含める(`date-jst.md`)
+2. `features/forecast/api/`: `fetchForecast(area?)` で `apiClient.api.forecast.$get` を呼ぶ。非 ok 応答は `{ code, message }` と `status` を持つ `ForecastApiError` に変換する。テスト: 200 の型付き値 / 502・400・401 のエラー化 / `area` 省略時にクエリを付けないこと
+3. `features/forecast/hooks/use-forecast.ts`: `useQuery({ queryKey: ['forecast', area] })` を包み、`forecast` / `isPending` / `error` / `isStale`(サーバーの `status === 'stale'`)/ `refetch` / `snapshotId` を返す。テスト(`api/` をモック): 地域ごとにキャッシュが分かれること / 再取得失敗時に前のデータとエラーを同時に返すこと / `refetch` で回復すること
+4. `features/forecast/model/`(任意): 日付を `YYYY年M月D日`、気温 null を「—」に変換する表示用の純粋関数。予報値は改変しない(丸め・補完をしない)
+5. `features/forecast/components/`(props in / callback out。実装前に modern-web-guidance でテーブル・レスポンシブ・ローディングのガイドを検索する)
+   - `ForecastTable`: 7日分の日付・最高・最低。モバイルは縦積みで横スクロールを出さない
+   - `ForecastMeta`: 「◯時◯分発表」・代表地点の明示。stale 時は「◯時◯分時点の予報(最新を取得できませんでした)」
+   - `ForecastError`: エラーメッセージ + 再試行ボタン(stale データがあればテーブルと併記)
+   - `ForecastSection`: 上記と `AreaSelect` を合成し、`onAreaChange` / `onRetry` を受ける
+   - テスト: 欠損「—」/ stale の文言 / 失敗時のエラー + 再試行コールバック / stale データとエラーの併記 / ローディング
+6. `routes/forecast.tsx`: `validateSearch` で `area` を受け、`useForecast(area ?? user.areaCode)` を `ForecastSection` に渡す。地域変更は `navigate({ search })`。6b でコーデ入力部を同じルートに合成するため、ルートは合成のみに留める。テスト(`routes/forecast.test.tsx` を拡張): 登録地域で取得すること / セレクタで URL と表示が変わること / 不正な `?area=` は登録地域にフォールバックすること / 502 でエラー + 再試行が出ること / **出典表記が予報の成否にかかわらず常時表示されること**
+7. 結合確認: `pnpm dev` で 5a の実 API に結線し、東京 → 奄美(460040)への切替表示、api 停止時の 502 表示と再試行での回復を確認する。`verify-frontend` スキルで表示・コンソール・a11y・モバイル幅を検証する
+
+**完了条件**: spec §2.2 の Must(登録地域の週間予報・地域切替・取得失敗時表示・出典表記)と §5 の鮮度・出どころ表示を満たし、features 間の横断参照がないこと。
 
 ---
 
