@@ -6,8 +6,8 @@ import { getServerSession } from '../api/server-session.ts'
 /**
  * 保護ルートの `beforeLoad` から呼ぶセッションガード(application 相当)。
  *
- * 未認証だけでなく、セッション取得そのものが失敗した場合も `/login` へ送る。
- * 「確認できなかった」を通してしまうと保護ルートが素通しになるため。
+ * 通信障害時は fetchSession が取得済みの期限内セッションを使う。
+ * 未認証、または維持できるセッションが無い場合は `/login` へ送る。
  */
 export async function requireSession() {
   const session = await loadSession().catch(() => null)
