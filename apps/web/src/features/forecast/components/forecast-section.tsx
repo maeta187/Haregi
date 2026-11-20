@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { AreaSelect } from '@/components/area-select.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { Skeleton } from '@/components/ui/skeleton.tsx'
@@ -8,6 +9,7 @@ import { ForecastMeta } from './forecast-meta.tsx'
 import { ForecastError } from './forecast-error.tsx'
 
 type ForecastSectionProps = {
+  children?: ReactNode
   area: string
   forecast: Forecast | undefined
   isPending: boolean
@@ -18,6 +20,7 @@ type ForecastSectionProps = {
 }
 
 export function ForecastSection({
+  children,
   area,
   forecast,
   isPending,
@@ -40,11 +43,11 @@ export function ForecastSection({
         </p>
       </div>
       {isPending && (
-        <output className="flex flex-col gap-3">
+        <output className="text-muted-foreground flex flex-col gap-1 text-sm">
           <p>予報を読み込んでいます</p>
           <Skeleton
             aria-hidden="true"
-            className="h-80 w-full motion-reduce:animate-none"
+            className="h-5 w-44 motion-reduce:animate-none"
           />
         </output>
       )}
@@ -55,9 +58,10 @@ export function ForecastSection({
             forecastIssuedAt={forecast.forecastIssuedAt}
             isStale={isStale || error !== null}
           />
-          <ForecastTable days={forecast.days} />
+          {children === undefined && <ForecastTable days={forecast.days} />}
         </>
       )}
+      {children}
       <p className="text-muted-foreground text-sm">
         <a
           href="https://www.jma.go.jp/"

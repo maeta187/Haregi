@@ -12,5 +12,6 @@ export {
   formatJstDate,
   isValidJstDate,
   todayJst,
+  shiftJstDay,
 } from './date.ts'
 export { formatTemperature } from './temperature.ts'
