@@ -3,6 +3,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   real,
   serial,
   text,
@@ -107,3 +108,16 @@ export const forecastSnapshot = pgTable('forecast_snapshot', {
     .notNull()
     .defaultNow(),
 })
+
+/** 削除後も版を再利用しないための発行履歴。0 は未発行。ユーザー削除時のみ破棄する。 */
+export const coordinateVersion = pgTable(
+  'coordinate_version',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    date: date('date', { mode: 'string' }).notNull(),
+    lastVersion: integer('last_version').notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.date] })],
+)

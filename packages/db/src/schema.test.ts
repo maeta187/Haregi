@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import {
   coordinate,
+  coordinateVersion,
   type ForecastSnapshotStatus,
   forecastSnapshot,
   type SnapshotStatus,
@@ -146,5 +147,23 @@ describe('状態値の型', () => {
     expectTypeOf<
       (typeof forecastSnapshot.$inferInsert)['status']
     >().toEqualTypeOf<ForecastSnapshotStatus>()
+  })
+})
+
+describe('coordinate_version テーブル', () => {
+  it('削除後も user/date ごとの最終版を保持し、ユーザー削除時だけ追随する', () => {
+    const { primaryKeys, foreignKeys } = getTableConfig(coordinateVersion)
+    expect(primaryKeys[0]?.columns.map((column) => column.name)).toEqual([
+      'user_id',
+      'date',
+    ])
+    const columns = columnsOf(coordinateVersion)
+    expect(columns.get('date')?.columnType).toBe('PgDateString')
+    expect(columns.get('last_version')?.columnType).toBe('PgInteger')
+    expect(columns.get('last_version')?.notNull).toBe(true)
+    expect(columns.get('last_version')?.default).toBe(0)
+    expect(foreignKeys).toHaveLength(1)
+    expect(foreignKeys[0]?.onDelete).toBe('cascade')
+    expect(foreignKeys[0]?.reference().foreignTable).toBe(user)
   })
 })

@@ -12,11 +12,12 @@ const authConfig = {
 }
 
 // 0001 適用前(フェーズ3 の 0000 のみ)の account テーブルへ戻す。
-// 既存行を消さないため、0000 から作り直すのではなく issuer だけを取り除く。
+// account の既存行は残し、issuer と後続マイグレーションの版履歴テーブルを取り除く。
 async function rollbackToInitialSchema(database: TestDatabase) {
+  await database.pool.query('DROP TABLE coordinate_version')
   await database.pool.query('ALTER TABLE "account" DROP COLUMN "issuer"')
   await database.pool.query(
-    'DELETE FROM drizzle.__drizzle_migrations WHERE hash = (SELECT hash FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 1)',
+    'DELETE FROM drizzle.__drizzle_migrations WHERE created_at > (SELECT min(created_at) FROM drizzle.__drizzle_migrations)',
   )
 }
 
