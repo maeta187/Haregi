@@ -1,3 +1,4 @@
+import { CoordinateSection } from '@/features/coordinate/components/coordinate-section.tsx'
 import { findArea } from '@haregi/schema'
 import { createFileRoute } from '@tanstack/react-router'
 import { requireSession } from '@/features/auth/hooks/require-session.ts'
@@ -39,7 +40,9 @@ function ForecastPage() {
         onRetry={() => {
           void forecast.refetch()
         }}
-      />
+      >
+        <CoordinateSection userId={user.id} {...forecast} />
+      </ForecastSection>
     </main>
   )
 }

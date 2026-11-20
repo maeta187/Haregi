@@ -55,3 +55,14 @@ export const formatJstDateTime = (iso: string): string => {
   const jst = new Date(new Date(iso).getTime() + JST_OFFSET_MILLISECONDS)
   return `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日 ${jst.getUTCHours()}時${padTwoDigits(jst.getUTCMinutes())}分`
 }
+
+/** JST の暦日を日単位で進める。 */
+export const shiftJstDay = (date: string, days: number): string => {
+  if (!isValidJstDate(date)) {
+    throw new RangeError('有効なJST日付を指定してください')
+  }
+
+  const day = new Date(`${date}T00:00:00Z`)
+  day.setUTCDate(day.getUTCDate() + days)
+  return day.toISOString().slice(0, 10)
+}

@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { formatJstDate, isValidJstDate, todayJst } from '@haregi/schema'
+import {
+  formatJstDate,
+  isValidJstDate,
+  shiftJstDay,
+  todayJst,
+} from '@haregi/schema'
 
 describe('todayJst', () => {
   afterEach(() => {
@@ -37,5 +42,15 @@ describe('isValidJstDate', () => {
 describe('formatJstDate', () => {
   it('YYYY-MM-DDを年月日の表示へ整形する', () => {
     expect(formatJstDate('2026-01-02')).toBe('2026年1月2日')
+  })
+})
+
+describe('shiftJstDay', () => {
+  it.each([
+    ['2026-12-30', 6, '2027-01-05'],
+    ['2024-02-29', 1, '2024-03-01'],
+    ['2024-03-01', -1, '2024-02-29'],
+  ])('%s を %s 日進めると %s を返す', (date, offset, expected) => {
+    expect(shiftJstDay(date, offset)).toBe(expected)
   })
 })
