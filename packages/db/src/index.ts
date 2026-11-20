@@ -7,6 +7,7 @@ export {
   account,
   accountRelations,
   coordinate,
+  coordinateVersion,
   forecastSnapshot,
   session,
   sessionRelations,

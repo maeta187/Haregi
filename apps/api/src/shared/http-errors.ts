@@ -1,8 +1,10 @@
+import { HTTPException } from 'hono/http-exception'
+
 const statuses = {
   VALIDATION: 400,
   UNAUTHORIZED: 401,
   NOT_FOUND: 404,
-  CONFLICT: 409,
+  VERSION_CONFLICT: 409,
   SNAPSHOT_UNAVAILABLE: 409,
   UPSTREAM_UNAVAILABLE: 502,
 } as const
@@ -24,6 +26,12 @@ export class ApplicationError extends Error {
 }
 
 export function toHttpError(error: unknown) {
+  if (error instanceof HTTPException && error.status === 400) {
+    return {
+      status: 400 as const,
+      body: { code: 'VALIDATION', message: '入力内容を確認してください' },
+    }
+  }
   if (error instanceof ApplicationError) {
     return {
       status: statuses[error.code],

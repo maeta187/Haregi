@@ -17,9 +17,18 @@ import {
 } from './features/forecast/application/service.ts'
 import { forecastRoutes } from './features/forecast/presentation/routes.ts'
 
+import { createCoordinateRepository } from './features/coordinate/infrastructure/repository.ts'
+import {
+  createCoordinateService,
+  type CoordinateService,
+} from './features/coordinate/application/service.ts'
+import { coordinateRoutes } from './features/coordinate/presentation/routes.ts'
+
 export type AppOptions = {
   sessions?: SessionReader
-  forecastService?: Pick<ForecastService, 'getForecast'>
+  coordinateService?: CoordinateService
+  forecastService?: Pick<ForecastService, 'getForecast'> &
+    Partial<Pick<ForecastService, 'getForecastBySnapshotId'>>
   provider?: Pick<typeof auth, 'handler'>
   /** 手前に立つリバースプロキシ / dev proxy の IP・CIDR(`TRUSTED_PROXY_IPS`)。 */
   trustedProxies?: readonly string[]
@@ -31,8 +40,17 @@ export const createApp = ({
   forecastService = createForecastService(
     createForecastRepository(authDatabase.db),
   ),
+  coordinateService,
   trustedProxies = parseTrustedProxies(process.env['TRUSTED_PROXY_IPS']),
 }: AppOptions = {}) => {
+  const coordinates =
+    coordinateService ??
+    createCoordinateService(createCoordinateRepository(authDatabase.db), {
+      getForecastBySnapshotId:
+        forecastService.getForecastBySnapshotId ??
+        createForecastService(createForecastRepository(authDatabase.db))
+          .getForecastBySnapshotId,
+    })
   const app = createOpenApiApp<AuthEnv & ClientIpEnv>()
   // 委譲より前にクライアント IP の信頼境界を確定させる
   app.use('*', clientIp(trustedProxies))
@@ -56,6 +74,7 @@ export const createApp = ({
     )
     .route('/', authRoutes(provider))
     .route('/', forecastRoutes(sessions, forecastService))
+    .route('/', coordinateRoutes(sessions, coordinates))
 }
 
 export const app = createApp()

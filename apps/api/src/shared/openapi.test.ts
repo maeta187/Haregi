@@ -17,12 +17,12 @@ it('認証なしで OpenAPI 定義と Swagger UI を取得できる', async () =
 
 it('application の例外を JSON の HTTP エラーにする', async () => {
   const app = createOpenApiApp().get('/conflict', () => {
-    throw new ApplicationError('CONFLICT', '競合しています')
+    throw new ApplicationError('VERSION_CONFLICT', '競合しています')
   })
   const response = await app.request('/conflict')
   expect(response.status).toBe(409)
   expect(await response.json()).toEqual({
-    code: 'CONFLICT',
+    code: 'VERSION_CONFLICT',
     message: '競合しています',
   })
 })

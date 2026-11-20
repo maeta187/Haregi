@@ -5,7 +5,8 @@ it.each([
   ['VALIDATION', 400],
   ['UNAUTHORIZED', 401],
   ['NOT_FOUND', 404],
-  ['CONFLICT', 409],
+  ['VERSION_CONFLICT', 409],
+  ['SNAPSHOT_UNAVAILABLE', 409],
   ['UPSTREAM_UNAVAILABLE', 502],
 ] as const)('%s を HTTP %s に変換する', (code, status) => {
   expect(toHttpError(new ApplicationError(code, 'エラーです'))).toEqual({
