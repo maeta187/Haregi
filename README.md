@@ -59,6 +59,7 @@ cp .env.example .env
 | 変数 | 用途 |
 | --- | --- |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `docker-compose.yml` が読む PostgreSQL の初期化情報（未設定時はいずれも `haregi`）。変更したら `DATABASE_URL` も揃える |
+| `POSTGRES_HOST_PORT` | PostgreSQL を公開するホスト側のポート（既定値 `5432`）。変更したら `DATABASE_URL` のポートも揃える |
 | `DATABASE_URL` | ローカル PostgreSQL の接続 URL |
 | `BETTER_AUTH_SECRET` | Better Auth の署名用シークレット。32 文字以上のランダムな値へ変更する |
 | `BETTER_AUTH_URL` | Better Auth のベース URL |
